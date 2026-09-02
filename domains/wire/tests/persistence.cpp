@@ -28,7 +28,7 @@ bool C750_authoritative_save_is_deterministic_and_changes_after_edit() {
   std::string repeated_save{};
   if (!make_roundtrip_source(&state, &first_save, nullptr)) return false;
   const auto saved = state.SerializeAuthoritative(&repeated_save);
-  if (!saved.ok || first_save.empty() || first_save.rfind("wire_state_v5\n", 0) != 0 ||
+  if (!saved.ok || first_save.empty() || first_save.rfind("wire_state_v6\n", 0) != 0 ||
       first_save != repeated_save) {
     return false;
   }
@@ -328,8 +328,6 @@ bool make_roundtrip_source(city::wire::CoreState* state, std::string* saved, Der
   lv.support_wire_pole_band_id = 100;
   lv.span_visual_assembly.support_path_enabled = true;
   lv.span_visual_assembly.helix_enabled = true;
-  lv.span_visual_assembly.helix_turns_per_meter = 0.5;
-  lv.span_visual_assembly.helix_samples_per_turn = 12;
   lv.span_visual_assembly.endpoint_trim_m = 0.2;
   lv.span_visual_assembly.visual_member_count = 3;
   lv.span_visual_assembly.visual_member_spacing_m = 0.04;

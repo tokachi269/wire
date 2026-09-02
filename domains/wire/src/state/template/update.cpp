@@ -351,8 +351,7 @@ bool population_rules_equal(const std::vector<CablePopulationRule>& a,
 bool span_visual_assembly_equals(const SpanVisualAssemblyTemplate& a, const SpanVisualAssemblyTemplate& b) {
   return a.support_path_enabled == b.support_path_enabled &&
          a.helix_enabled == b.helix_enabled && a.helix_radius_m == b.helix_radius_m &&
-         a.helix_clearance_m == b.helix_clearance_m && a.helix_turns_per_meter == b.helix_turns_per_meter &&
-         a.helix_samples_per_turn == b.helix_samples_per_turn && a.endpoint_trim_m == b.endpoint_trim_m &&
+         a.helix_clearance_m == b.helix_clearance_m && a.endpoint_trim_m == b.endpoint_trim_m &&
          a.visual_member_count == b.visual_member_count &&
          a.visual_member_spacing_m == b.visual_member_spacing_m;
 }
@@ -771,8 +770,7 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
   const SpanVisualAssemblyTemplate& assembly = normalized.span_visual_assembly;
   if (!std::isfinite(assembly.helix_radius_m) || assembly.helix_radius_m < 0.0 ||
       !std::isfinite(assembly.helix_clearance_m) || assembly.helix_clearance_m < 0.0 ||
-      !std::isfinite(assembly.helix_turns_per_meter) || assembly.helix_turns_per_meter < 0.0 ||
-      assembly.helix_samples_per_turn < 4 || !std::isfinite(assembly.endpoint_trim_m) ||
+      !std::isfinite(assembly.endpoint_trim_m) ||
       assembly.endpoint_trim_m < 0.0 || assembly.visual_member_count < 1 ||
       !std::isfinite(assembly.visual_member_spacing_m) || assembly.visual_member_spacing_m < 0.0 ||
       (assembly.visual_member_count > 1 && assembly.visual_member_spacing_m <= 0.0)) {
@@ -780,7 +778,7 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
     return result;
   }
   if (assembly.helix_enabled &&
-      (!assembly.support_path_enabled || assembly.helix_turns_per_meter <= 0.0)) {
+      !assembly.support_path_enabled) {
     result.error = "core invalid input: enabled span visual assembly requires a support path and positive helix turns";
     return result;
   }

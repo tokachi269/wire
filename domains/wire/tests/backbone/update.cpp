@@ -2708,10 +2708,8 @@ bool C758_span_visual_assembly_emits_support_and_helix() {
   tpl.support_wire_pole_band_id = 100;
   tpl.span_visual_assembly.support_path_enabled = false;
   tpl.span_visual_assembly.helix_enabled = true;
-  tpl.span_visual_assembly.helix_turns_per_meter = 1.0;
   if (state.UpdateBundleTemplate(tpl).ok) return false;
   tpl.span_visual_assembly.support_path_enabled = true;
-  tpl.span_visual_assembly.helix_samples_per_turn = 12;
   tpl.span_visual_assembly.endpoint_trim_m = 0.25;
   tpl.span_visual_assembly.helix_radius_m = 1e-6;
   if (state.UpdateBundleTemplate(tpl).ok) return false;
@@ -2763,8 +2761,6 @@ bool C758_span_visual_assembly_emits_support_and_helix() {
   fresh_template.support_wire_pole_band_id = 100;
   fresh_template.span_visual_assembly.support_path_enabled = true;
   fresh_template.span_visual_assembly.helix_enabled = true;
-  fresh_template.span_visual_assembly.helix_turns_per_meter = 1.0;
-  fresh_template.span_visual_assembly.helix_samples_per_turn = 12;
   fresh_template.span_visual_assembly.endpoint_trim_m = 0.25;
   fresh_template.span_visual_assembly.helix_clearance_m = 0.08;
   const auto fresh_update = fresh.UpdateBundleTemplate(fresh_template);
@@ -2785,9 +2781,27 @@ bool C758_span_visual_assembly_emits_support_and_helix() {
 bool C759_span_visual_assembly_has_one_geometry_owner() {
   std::string assembly{};
   std::string curve_parts{};
+  std::string native_overlay{};
   if (!file_text(repo_root() / "domains/wire/src/generation/backbone/span_visual_assembly.cpp", &assembly) ||
-      !file_text(repo_root() / "domains/wire/src/generation/backbone/curve_parts.cpp", &curve_parts)) {
+      !file_text(repo_root() / "domains/wire/src/generation/backbone/curve_parts.cpp", &curve_parts) ||
+      !file_text(repo_root() / "viewer/src/render_overlay.cpp", &native_overlay)) {
     return false;
+  }
+  const std::array<std::string_view, 8> forbidden_asset_tokens = {
+      "VisualCurveAppearancePiece", "appearance_pieces", "asset_key", "source_length_m",
+      "kMainPatternLengthM", "kConnectionPatternLengthM", "main/wire_", "connection/wire_"};
+  for (const std::filesystem::path root : {
+           repo_root() / "domains/wire/include", repo_root() / "domains/wire/src"}) {
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(root)) {
+      if (!entry.is_regular_file() || (entry.path().extension() != ".hpp" && entry.path().extension() != ".cpp")) {
+        continue;
+      }
+      std::string source{};
+      if (!file_text(entry.path(), &source)) return false;
+      for (std::string_view token : forbidden_asset_tokens) {
+        if (source.find(token) != std::string::npos) return false;
+      }
+    }
   }
   return contains_text(assembly, "make_helix_part") && contains_text(assembly, "contain_members") &&
          contains_text(assembly, "make_support_path") &&
@@ -2797,7 +2811,8 @@ bool C759_span_visual_assembly_has_one_geometry_owner() {
          !contains_text(assembly, "AddSpan") && !contains_text(assembly, "AddBundle") &&
          !contains_text(assembly, "AddPort") && contains_text(curve_parts, "apply_span_visual_assemblies(state, assembly_endpoints, &out)") &&
          !contains_text(curve_parts, "make_primary_curve_between") &&
-         !contains_text(curve_parts, "member_wander_ratio") && !contains_text(curve_parts, "helix_turns_per_meter");
+         !contains_text(curve_parts, "member_wander_ratio") && !contains_text(curve_parts, "helix_turns_per_meter") &&
+         contains_text(native_overlay, "part.supplemental_kind == city::wire::VisualSupplementalKind::kHelix");
 }
 
 bool C850_backbone_fixed_count_increase_scopes_independent_bundle_components() {

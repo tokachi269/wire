@@ -159,15 +159,6 @@ struct VisualCurveDiagnostic {
   std::string reason{};
 };
 
-struct VisualCurveAppearancePiece {
-  std::string asset_key{};
-  double curve_start_m = 0.0;
-  double curve_end_m = 0.0;
-  double source_length_m = 0.0;
-  double local_offset_scale_m = 1.0;
-  bool reverse = false;
-};
-
 struct VisualCurvePart {
   VisualCurvePartKind kind = VisualCurvePartKind::kEdgeBody;
   VisualSupplementalKind supplemental_kind = VisualSupplementalKind::kNone;
@@ -200,10 +191,9 @@ struct VisualCurvePart {
   double wire_radius_m = 0.015;
   std::uint32_t color_rgba = 0xFFFFFFFFu;
   CableMaterialStyleKind material_style = CableMaterialStyleKind::kGeneric;
-  double pattern_offset_scale_m = 1.0;
+  double resolved_helix_radius_m = 0.0;
   std::vector<Vec3d> bezier_control_points{};
   std::vector<Vec3d> samples{};
-  std::vector<VisualCurveAppearancePiece> appearance_pieces{};
   AABBd bounds{};
   std::uint64_t source_version = 0;
 };

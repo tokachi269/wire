@@ -800,8 +800,7 @@ ValidationResult CoreState::Validate() const {
     const SpanVisualAssemblyTemplate& assembly = bundle_template.span_visual_assembly;
     const bool values_valid = std::isfinite(assembly.helix_radius_m) && assembly.helix_radius_m >= 0.0 &&
         std::isfinite(assembly.helix_clearance_m) && assembly.helix_clearance_m >= 0.0 &&
-        std::isfinite(assembly.helix_turns_per_meter) && assembly.helix_turns_per_meter >= 0.0 &&
-        assembly.helix_samples_per_turn >= 4 && std::isfinite(assembly.endpoint_trim_m) &&
+        std::isfinite(assembly.endpoint_trim_m) &&
         assembly.endpoint_trim_m >= 0.0 && assembly.visual_member_count >= 1 &&
         std::isfinite(assembly.visual_member_spacing_m) && assembly.visual_member_spacing_m >= 0.0 &&
         (assembly.visual_member_count == 1 || assembly.visual_member_spacing_m > 0.0);
@@ -810,7 +809,7 @@ ValidationResult CoreState::Validate() const {
           "Span visual assembly settings are invalid", kInvalidObjectId});
     }
     if (assembly.helix_enabled &&
-        (!assembly.support_path_enabled || assembly.helix_turns_per_meter <= 0.0)) {
+        !assembly.support_path_enabled) {
       result.issues.emplace_back(ValidationIssue{ValidationSeverity::kError, "SpanVisualAssemblySupportMissing",
           "Enabled span visual assembly requires a support path and positive turns-per-meter", kInvalidObjectId});
     }

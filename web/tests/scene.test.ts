@@ -304,6 +304,10 @@ describe("backbone pick payload", () => {
 
 describe("scene part reuse", () => {
   it("rebuilds only the part whose stable key version changed", () => {
+    const patternSpy = vi.spyOn(wirePatternAssetCache, "asset").mockReturnValue({
+      points: [0, 1, 2, 3, 4].map((x) => new THREE.Vector3(x, 0, 0)),
+      minX: 0, maxX: 4, sourceLength: 4
+    });
     const scene = Object.create(WireScene.prototype) as any;
     scene.content = new THREE.Group();
     scene.partMeshes = new Map();
@@ -330,7 +334,7 @@ describe("scene part reuse", () => {
         laneIndex: 0,
         runId: 1,
         sampleCount: 2,
-        appearancePieces: []
+        resolvedHelixRadius: 0
       },
       samples: new Float64Array([0, 0, 0, 10, 0, 0])
     }, {
@@ -351,7 +355,7 @@ describe("scene part reuse", () => {
         laneIndex: 0,
         runId: 2,
         sampleCount: 2,
-        appearancePieces: []
+        resolvedHelixRadius: 0
       },
       samples: new Float64Array([0, 1, 0, 10, 1, 0])
     }];
@@ -400,9 +404,14 @@ describe("scene part reuse", () => {
       total: 1, reused: 1, rebuilt: 0, removed: 1,
       modelTotal: 0, modelReused: 0, modelUpdated: 0, modelRebuilt: 0, modelRemoved: 0
     });
+    patternSpy.mockRestore();
   });
 
   it("renders supplemental parts from core color without a support material override", () => {
+    const patternSpy = vi.spyOn(wirePatternAssetCache, "asset").mockReturnValue({
+      points: [0, 1, 2, 3, 4].map((x) => new THREE.Vector3(x, 0, 0)),
+      minX: 0, maxX: 4, sourceLength: 4
+    });
     const scene = Object.create(WireScene.prototype) as any;
     scene.content = new THREE.Group();
     scene.partMeshes = new Map();
@@ -429,7 +438,7 @@ describe("scene part reuse", () => {
         laneIndex: 0,
         runId: 1,
         sampleCount: 2,
-        appearancePieces: []
+        resolvedHelixRadius: 0
       },
       samples: new Float64Array([0, y, 0, 10, y, 0])
     });
@@ -453,6 +462,7 @@ describe("scene part reuse", () => {
     const rebuiltSupportA = scene.partMeshes.get("support-a").mesh.material as THREE.MeshStandardMaterial;
     expect(rebuiltSupportA).not.toBe(supportB);
     expect(rebuiltSupportA.color.getHex()).toBe(supportA.color.getHex());
+    patternSpy.mockRestore();
   });
 });
 
@@ -512,9 +522,10 @@ function modelBootstrap(): ModelAssemblyBootstrapInput {
 describe("scene geometry from wasm", () => {
   it("creates three distinct model-aware HV meshes on first sync from a bridge snapshot", async () => {
     const patternSpy = vi.spyOn(wirePatternAssetCache, "asset").mockReturnValue({
-      points: [-2, -1, 0, 1, 2].map((x) => new THREE.Vector3(x, 0, 0)),
-      minX: -2,
-      maxX: 2
+      points: [0, 1, 2, 3, 4].map((x) => new THREE.Vector3(x, 0, 0)),
+      minX: 0,
+      maxX: 4,
+      sourceLength: 4
     });
     const bridge = await WireBridge.create();
     const configured = bridge.configureModelAssemblies(modelBootstrap());
@@ -724,7 +735,7 @@ describe("scene model reuse", () => {
         laneIndex: 0,
         runId: 1,
         sampleCount: 2,
-        appearancePieces: []
+        resolvedHelixRadius: 0
       },
       samples: new Float64Array([0, 0, 0, 1, 0, 0])
     }];

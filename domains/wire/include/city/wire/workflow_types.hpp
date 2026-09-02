@@ -229,8 +229,6 @@ struct SpanVisualAssemblyTemplate {
   bool helix_enabled = false;
   double helix_radius_m = 0.0;
   double helix_clearance_m = 0.0;
-  double helix_turns_per_meter = 0.0;
-  int helix_samples_per_turn = 16;
   double endpoint_trim_m = 0.0;
   int visual_member_count = 1;
   double visual_member_spacing_m = 0.0;

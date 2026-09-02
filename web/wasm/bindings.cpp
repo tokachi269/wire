@@ -864,19 +864,7 @@ private:
       output.set("bundleTemplateId", static_cast<int>(part.bundle_template_id));
       output.set("laneIndex", part.lane_index);
       output.set("runId", static_cast<double>(part.cable_run_id));
-      val appearance_pieces = val::array();
-      for (std::size_t piece_index = 0; piece_index < part.appearance_pieces.size(); ++piece_index) {
-        const auto& piece = part.appearance_pieces[piece_index];
-        val piece_output = val::object();
-        piece_output.set("assetKey", piece.asset_key);
-        piece_output.set("curveStartM", piece.curve_start_m);
-        piece_output.set("curveEndM", piece.curve_end_m);
-        piece_output.set("sourceLengthM", piece.source_length_m);
-        piece_output.set("localOffsetScaleM", piece.local_offset_scale_m);
-        piece_output.set("reverse", piece.reverse);
-        appearance_pieces.set(piece_index, piece_output);
-      }
-      output.set("appearancePieces", appearance_pieces);
+      output.set("resolvedHelixRadius", part.resolved_helix_radius_m);
       descriptors.set(descriptor_index++, output);
     }
     val result = val::object();
@@ -1106,8 +1094,6 @@ public:
     assembly_output.set("helixEnabled", assembly.helix_enabled);
     assembly_output.set("helixRadius", assembly.helix_radius_m);
     assembly_output.set("helixClearance", assembly.helix_clearance_m);
-    assembly_output.set("helixTurnsPerMeter", assembly.helix_turns_per_meter);
-    assembly_output.set("helixSamplesPerTurn", assembly.helix_samples_per_turn);
     assembly_output.set("endpointTrim", assembly.endpoint_trim_m);
     assembly_output.set("visualMemberCount", assembly.visual_member_count);
     assembly_output.set("visualMemberSpacing", assembly.visual_member_spacing_m);
@@ -1144,8 +1130,6 @@ public:
     bundle_template.span_visual_assembly.helix_enabled = property<bool>(assembly, "helixEnabled");
     bundle_template.span_visual_assembly.helix_radius_m = property<double>(assembly, "helixRadius");
     bundle_template.span_visual_assembly.helix_clearance_m = property<double>(assembly, "helixClearance");
-    bundle_template.span_visual_assembly.helix_turns_per_meter = property<double>(assembly, "helixTurnsPerMeter");
-    bundle_template.span_visual_assembly.helix_samples_per_turn = property<int>(assembly, "helixSamplesPerTurn");
     bundle_template.span_visual_assembly.endpoint_trim_m = property<double>(assembly, "endpointTrim");
     bundle_template.span_visual_assembly.visual_member_count =
         property<int>(assembly, "visualMemberCount");

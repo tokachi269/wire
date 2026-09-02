@@ -276,7 +276,7 @@ describe("viewer actions", () => {
             laneIndex: 0,
             runId: 1,
             sampleCount: 2,
-            appearancePieces: []
+            resolvedHelixRadius: 0
           },
           samples: new Float64Array([0, 0, 2, 10, 0, 2])
         }
@@ -301,8 +301,7 @@ describe("viewer actions", () => {
           endpointFixtureAssemblyId: 0,
           spanVisualAssembly: {
             supportPathEnabled: false,
-            helixEnabled: false, helixRadius: 0, helixClearance: 0, helixTurnsPerMeter: 0,
-            helixSamplesPerTurn: 16, endpointTrim: 0,
+            helixEnabled: false, helixRadius: 0, helixClearance: 0, endpointTrim: 0,
             visualMemberCount: 1, visualMemberSpacing: 0
           },
         }
@@ -390,8 +389,7 @@ describe("viewer actions", () => {
            endpointFixtureAssemblyId: 0,
           spanVisualAssembly: {
             supportPathEnabled: false,
-            helixEnabled: false, helixRadius: 0, helixClearance: 0, helixTurnsPerMeter: 0,
-            helixSamplesPerTurn: 16, endpointTrim: 0,
+            helixEnabled: false, helixRadius: 0, helixClearance: 0, endpointTrim: 0,
             visualMemberCount: 1, visualMemberSpacing: 0
           },
         }
@@ -430,7 +428,7 @@ describe("viewer actions", () => {
         laneIndex: 0,
         runId: 1,
         sampleCount: 2,
-        appearancePieces: []
+        resolvedHelixRadius: 0
       },
       samples: new Float64Array([0, 0, 2, 10, 0, 2])
     };
@@ -453,8 +451,7 @@ describe("viewer actions", () => {
           endpointFixtureAssemblyId: 0,
           spanVisualAssembly: {
             supportPathEnabled: false,
-            helixEnabled: false, helixRadius: 0, helixClearance: 0, helixTurnsPerMeter: 0,
-            helixSamplesPerTurn: 16, endpointTrim: 0,
+            helixEnabled: false, helixRadius: 0, helixClearance: 0, endpointTrim: 0,
             visualMemberCount: 1, visualMemberSpacing: 0
           },
         }
@@ -498,8 +495,7 @@ const bundleTemplate: BundleTemplateInfo = {
   endpointFixtureAssemblyId: 0,
   spanVisualAssembly: {
     supportPathEnabled: false,
-    helixEnabled: false, helixRadius: 0, helixClearance: 0, helixTurnsPerMeter: 0,
-    helixSamplesPerTurn: 16, endpointTrim: 0,
+    helixEnabled: false, helixRadius: 0, helixClearance: 0, endpointTrim: 0,
     visualMemberCount: 1, visualMemberSpacing: 0
   }
 };

@@ -1,31 +1,59 @@
 import * as THREE from "three";
-import type { VisualCurveAppearancePieceInfo } from "../model";
+import type { VisualPartInfo } from "../model";
 import connectionHelix1Url from "../assets/wire-patterns/connection/helix_1.glb?url";
 import connectionHelix2Url from "../assets/wire-patterns/connection/helix_2.glb?url";
-import connectionWire1Url from "../assets/wire-patterns/connection/wire_1.glb?url";
-import connectionWire2Url from "../assets/wire-patterns/connection/wire_2.glb?url";
+import connectionJitter1Url from "../assets/wire-patterns/connection/jitter_1.glb?url";
+import connectionJitter2Url from "../assets/wire-patterns/connection/jitter_2.glb?url";
+import connectionStraight1Url from "../assets/wire-patterns/connection/straight_1.glb?url";
+import connectionStraight2Url from "../assets/wire-patterns/connection/straight_2.glb?url";
 import mainHelix1Url from "../assets/wire-patterns/main/helix_1.glb?url";
 import mainHelix2Url from "../assets/wire-patterns/main/helix_2.glb?url";
-import mainWire1Url from "../assets/wire-patterns/main/wire_1.glb?url";
-import mainWire2Url from "../assets/wire-patterns/main/wire_2.glb?url";
+import mainJitter1Url from "../assets/wire-patterns/main/jitter_1.glb?url";
+import mainJitter2Url from "../assets/wire-patterns/main/jitter_2.glb?url";
+import mainStraight1Url from "../assets/wire-patterns/main/straight_1.glb?url";
+import mainStraight2Url from "../assets/wire-patterns/main/straight_2.glb?url";
 import { loadGltfScene } from "./modelAssets";
+
+export type WirePatternSection = "main" | "connection";
+export type WirePatternFamily = "straight" | "jitter" | "helix";
+export type WirePatternVariant = 1 | 2;
 
 export interface WirePatternAsset {
   points: THREE.Vector3[];
   minX: number;
   maxX: number;
+  sourceLength: number;
+}
+
+export interface WirePatternPiece {
+  curveStart: number;
+  curveEnd: number;
+  variant: WirePatternVariant;
+  flipAroundLongitudinalAxis: boolean;
+}
+
+export interface WirePatternCatalog {
+  asset(section: WirePatternSection, family: WirePatternFamily, variant: WirePatternVariant): WirePatternAsset;
 }
 
 const wirePatternUrls: Readonly<Record<string, string>> = {
   "connection/helix_1": connectionHelix1Url,
   "connection/helix_2": connectionHelix2Url,
-  "connection/wire_1": connectionWire1Url,
-  "connection/wire_2": connectionWire2Url,
+  "connection/jitter_1": connectionJitter1Url,
+  "connection/jitter_2": connectionJitter2Url,
+  "connection/straight_1": connectionStraight1Url,
+  "connection/straight_2": connectionStraight2Url,
   "main/helix_1": mainHelix1Url,
   "main/helix_2": mainHelix2Url,
-  "main/wire_1": mainWire1Url,
-  "main/wire_2": mainWire2Url
+  "main/jitter_1": mainJitter1Url,
+  "main/jitter_2": mainJitter2Url,
+  "main/straight_1": mainStraight1Url,
+  "main/straight_2": mainStraight2Url
 };
+
+function assetKey(section: WirePatternSection, family: WirePatternFamily, variant: WirePatternVariant): string {
+  return `${section}/${family}_${variant}`;
+}
 
 export function extractLooseEdgeChain(root: THREE.Object3D): WirePatternAsset {
   root.updateMatrixWorld(true);
@@ -47,9 +75,7 @@ export function extractLooseEdgeChain(root: THREE.Object3D): WirePatternAsset {
     const count = indices?.count ?? positions.count;
     if (count % 2 !== 0) throw new Error("wire pattern LINES primitive has an odd index count");
     for (let index = 0; index < count; index += 2) {
-      const a = indices?.getX(index) ?? index;
-      const b = indices?.getX(index + 1) ?? index + 1;
-      edges.push([offset + a, offset + b]);
+      edges.push([offset + (indices?.getX(index) ?? index), offset + (indices?.getX(index + 1) ?? index + 1)]);
     }
   });
   if (edges.length === 0) throw new Error("wire pattern contains no glTF LINES primitive");
@@ -81,21 +107,31 @@ export function extractLooseEdgeChain(root: THREE.Object3D): WirePatternAsset {
   if (ordered[0].x > ordered[ordered.length - 1].x) ordered.reverse();
   const minX = Math.min(...ordered.map((point) => point.x));
   const maxX = Math.max(...ordered.map((point) => point.x));
-  if (!(maxX > minX)) throw new Error("wire pattern has no positive local X extent");
-  return { points: ordered, minX, maxX };
+  const sourceLength = maxX - minX;
+  if (!(sourceLength > 0)) throw new Error("wire pattern has no positive local X extent");
+  return { points: ordered, minX, maxX, sourceLength };
 }
 
-class WirePatternAssetCache {
+export class WirePatternAssetCache implements WirePatternCatalog {
   private readonly loaded = new Map<string, WirePatternAsset>();
 
   async loadAll(): Promise<void> {
     await Promise.all(Object.entries(wirePatternUrls).map(async ([key, url]) => {
-      const scene = await loadGltfScene(url);
-      this.loaded.set(key, extractLooseEdgeChain(scene));
+      this.loaded.set(key, extractLooseEdgeChain(await loadGltfScene(url)));
     }));
+    for (const section of ["main", "connection"] as const) {
+      for (const family of ["straight", "jitter", "helix"] as const) {
+        const first = this.asset(section, family, 1);
+        const second = this.asset(section, family, 2);
+        if (Math.abs(first.sourceLength - second.sourceLength) > 1e-6) {
+          throw new Error(`wire pattern variants have different source extents: ${section}/${family}`);
+        }
+      }
+    }
   }
 
-  asset(key: string): WirePatternAsset {
+  asset(section: WirePatternSection, family: WirePatternFamily, variant: WirePatternVariant): WirePatternAsset {
+    const key = assetKey(section, family, variant);
     const asset = this.loaded.get(key);
     if (asset === undefined) throw new Error(`wire pattern asset is not loaded: ${key}`);
     return asset;
@@ -133,27 +169,64 @@ function sampleCurve(table: CurveTable, requestedDistance: number): { point: THR
   return { point: table.points[low].clone().lerp(table.points[high], u), tangent };
 }
 
+function stableHash(value: string): number {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+}
+
+export function resolveWirePatternVariation(
+  partKey: string,
+  family: WirePatternFamily,
+  pieceIndex: number
+): Pick<WirePatternPiece, "variant" | "flipAroundLongitudinalAxis"> {
+  const hash = stableHash(`${partKey}:${family}:${pieceIndex}`);
+  return {
+    variant: ((hash & 1) + 1) as WirePatternVariant,
+    flipAroundLongitudinalAxis: ((hash >>> 1) & 1) !== 0
+  };
+}
+
+export function planWirePatternPieces(
+  curveLength: number,
+  sourceLength: number,
+  partKey: string,
+  family: WirePatternFamily
+): WirePatternPiece[] {
+  if (!(curveLength > 0) || !(sourceLength > 0)) throw new Error("wire pattern lengths must be positive");
+  const count = Math.max(1, Math.ceil(curveLength / sourceLength));
+  return Array.from({ length: count }, (_, index) => ({
+    curveStart: curveLength * index / count,
+    curveEnd: curveLength * (index + 1) / count,
+    ...resolveWirePatternVariation(partKey, family, index)
+  }));
+}
+
+export function wirePatternSection(kind: number): WirePatternSection {
+  return kind === 1 || kind === 2 || kind === 3 ? "connection" : "main";
+}
+
+export function wirePatternFamily(part: VisualPartInfo): WirePatternFamily {
+  return part.supplementalKind === 2 ? "helix" : "straight";
+}
+
 export function deformWirePattern(
   asset: WirePatternAsset,
   coreSamples: Float64Array,
-  piece: VisualCurveAppearancePieceInfo
+  piece: WirePatternPiece,
+  localOffsetScale: number
 ): THREE.Vector3[] {
   const table = curveTable(coreSamples);
-  const sourceExtent = asset.maxX - asset.minX;
-  if (Math.abs(sourceExtent - piece.sourceLengthM) > 1e-5) {
-    throw new Error(`wire pattern source length mismatch: ${piece.assetKey}`);
+  if (piece.curveEnd - piece.curveStart > asset.sourceLength + 1e-9) {
+    throw new Error("wire pattern piece would stretch its source asset");
   }
-  if (piece.curveEndM - piece.curveStartM > piece.sourceLengthM + 1e-9) {
-    throw new Error(`wire pattern piece would stretch its source asset: ${piece.assetKey}`);
-  }
-  const source = piece.reverse ? [...asset.points].reverse() : asset.points;
   let previousLateral: THREE.Vector3 | null = null;
-  return source.map((authored) => {
-    const localX = piece.reverse ? -authored.x : authored.x;
-    const localY = piece.reverse ? -authored.y : authored.y;
-    const u = THREE.MathUtils.clamp((localX - asset.minX) / sourceExtent, 0, 1);
-    const sampled = sampleCurve(table, piece.curveStartM +
-      (piece.curveEndM - piece.curveStartM) * u);
+  return asset.points.map((authored) => {
+    const u = THREE.MathUtils.clamp((authored.x - asset.minX) / asset.sourceLength, 0, 1);
+    const sampled = sampleCurve(table, piece.curveStart + (piece.curveEnd - piece.curveStart) * u);
     let lateral = new THREE.Vector3(0, 0, 1).cross(sampled.tangent);
     if (lateral.lengthSq() <= 1e-12) {
       lateral = previousLateral?.clone() ?? new THREE.Vector3(1, 0, 0).cross(sampled.tangent);
@@ -162,20 +235,27 @@ export function deformWirePattern(
     lateral.normalize();
     previousLateral = lateral.clone();
     const up = sampled.tangent.clone().cross(lateral).normalize();
+    const sign = piece.flipAroundLongitudinalAxis ? -1 : 1;
     return sampled.point
-      .addScaledVector(lateral, localY * piece.localOffsetScaleM)
-      .addScaledVector(up, authored.z * piece.localOffsetScaleM);
+      .addScaledVector(lateral, authored.y * localOffsetScale * sign)
+      .addScaledVector(up, authored.z * localOffsetScale * sign);
   });
 }
 
 export function materializeWirePattern(
+  part: VisualPartInfo,
   coreSamples: Float64Array,
-  pieces: VisualCurveAppearancePieceInfo[],
-  resolveAsset: (key: string) => WirePatternAsset = (key) => wirePatternAssetCache.asset(key)
+  family: WirePatternFamily = wirePatternFamily(part),
+  cache: WirePatternCatalog = wirePatternAssetCache
 ): Float64Array {
+  const table = curveTable(coreSamples);
+  const section = wirePatternSection(part.kind);
+  const sourceLength = cache.asset(section, family, 1).sourceLength;
+  const pieces = planWirePatternPieces(table.total, sourceLength, part.partKey, family);
+  const localOffsetScale = family === "helix" ? part.resolvedHelixRadius : 1;
   const result: number[] = [];
   for (const piece of pieces) {
-    const deformed = deformWirePattern(resolveAsset(piece.assetKey), coreSamples, piece);
+    const deformed = deformWirePattern(cache.asset(section, family, piece.variant), coreSamples, piece, localOffsetScale);
     for (let index = 0; index < deformed.length; index += 1) {
       const point = deformed[index];
       const previousOffset = result.length - 3;

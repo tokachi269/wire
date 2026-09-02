@@ -2074,7 +2074,7 @@ describe("wire wasm smoke", () => {
     }));
 
     const text = savedState.saveState();
-    expect(text.startsWith("wire_state_v5\n")).toBe(true);
+    expect(text.startsWith("wire_state_v6\n")).toBe(true);
     const loadedState = createState();
     const loaded = loadedState.loadState(text);
     expect(loaded.ok, loaded.error).toBe(true);

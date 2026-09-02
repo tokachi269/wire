@@ -351,7 +351,6 @@
         {#each [
           ["helixRadius", "Helix radius (0 = auto-fit)", 0.005],
           ["helixClearance", "Helix clearance", 0.005],
-          ["helixTurnsPerMeter", "Helix turns / m", 0.1],
           ["endpointTrim", "Endpoint trim", 0.05]
         ] as field}
           <label>{field[1]}<input type="number" step={field[2]}
@@ -372,12 +371,6 @@
           <input type="number" min="0" step="0.001" value={fmt(bundle.spanVisualAssembly.visualMemberSpacing)}
             onchange={(event) => updateBundle(bundle, (draft) => {
               draft.spanVisualAssembly.visualMemberSpacing = round6(numberValue(event));
-            })} />
-        </label>
-        <label>Helix samples / turn
-          <input type="number" min="4" step="1" value={bundle.spanVisualAssembly.helixSamplesPerTurn}
-            onchange={(event) => updateBundle(bundle, (draft) => {
-              draft.spanVisualAssembly.helixSamplesPerTurn = Math.trunc(numberValue(event));
             })} />
         </label>
       </div>

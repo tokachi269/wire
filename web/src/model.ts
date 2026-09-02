@@ -91,16 +91,7 @@ export interface VisualPartInfo {
   laneIndex: number;
   runId: number;
   sampleCount: number;
-  appearancePieces: VisualCurveAppearancePieceInfo[];
-}
-
-export interface VisualCurveAppearancePieceInfo {
-  assetKey: string;
-  curveStartM: number;
-  curveEndM: number;
-  sourceLengthM: number;
-  localOffsetScaleM: number;
-  reverse: boolean;
+  resolvedHelixRadius: number;
 }
 
 export interface VisualModelInstanceInfo {
@@ -344,8 +335,6 @@ export interface SpanVisualAssemblyInfo {
   helixEnabled: boolean;
   helixRadius: number;
   helixClearance: number;
-  helixTurnsPerMeter: number;
-  helixSamplesPerTurn: number;
   endpointTrim: number;
   visualMemberCount: number;
   visualMemberSpacing: number;

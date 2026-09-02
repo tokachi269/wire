@@ -1567,10 +1567,7 @@ export class WireScene {
         part.info.materialStyle,
         part.info.colorRgba,
         part.info.sampleCount,
-        part.info.appearancePieces.map((piece) => [
-          piece.assetKey, piece.curveStartM, piece.curveEndM, piece.sourceLengthM,
-          piece.localOffsetScaleM, piece.reverse
-        ].join(",")).join(";"),
+        part.info.resolvedHelixRadius,
         sampleContentVersion(part.samples)
       ].join(":");
       const previous = this.partMeshes.get(key);
@@ -1588,9 +1585,7 @@ export class WireScene {
       }
 
       const radius = THREE.MathUtils.clamp(part.info.wireRadius, 0.006, 0.08);
-      const renderedSamples = part.info.appearancePieces.length > 0
-        ? materializeWirePattern(part.samples, part.info.appearancePieces)
-        : part.samples;
+      const renderedSamples = materializeWirePattern(part.info, part.samples);
       const materialKey = `${part.info.supplementalKind}:${part.info.materialStyle}:${part.info.colorRgba}`;
       if (previous !== undefined && this.updateSampledTubeGeometry(previous.mesh.geometry, renderedSamples, radius)) {
         if (previous.materialKey !== materialKey) {

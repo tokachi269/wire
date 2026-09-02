@@ -2502,8 +2502,6 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
       ImGui::Checkbox("Assembly Helix Enabled", &assembly.helix_enabled);
       ImGui::InputDouble("Assembly Helix Radius", &assembly.helix_radius_m, 0.01, 0.05, "%.3f");
       ImGui::InputDouble("Assembly Helix Clearance", &assembly.helix_clearance_m, 0.01, 0.05, "%.3f");
-      ImGui::InputDouble("Assembly Helix Turns Per Meter", &assembly.helix_turns_per_meter, 0.01, 0.05, "%.3f");
-      ImGui::InputInt("Assembly Helix Samples Per Turn", &assembly.helix_samples_per_turn);
       ImGui::InputDouble("Assembly Endpoint Trim", &assembly.endpoint_trim_m, 0.01, 0.05, "%.3f");
       ImGui::InputDouble("Assembly Wander Ratio", &assembly.member_wander_ratio, 0.01, 0.05, "%.3f");
       ImGui::InputDouble("Assembly Wander Wavelength", &assembly.member_wander_wavelength_m, 0.1, 0.5, "%.3f");

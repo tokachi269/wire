@@ -21,7 +21,7 @@ namespace {
 
 class StateWriter {
 public:
-  StateWriter() { text_ = "wire_state_v5\n"; }
+  StateWriter() { text_ = "wire_state_v6\n"; }
 
   void value(const std::string& key, bool input) { line(key, input ? "1" : "0"); }
 
@@ -74,7 +74,7 @@ private:
 class StateReader {
 public:
   bool parse(const std::string& text) {
-    static constexpr std::string_view kHeader = "wire_state_v5\n";
+    static constexpr std::string_view kHeader = "wire_state_v6\n";
     if (!text.starts_with(kHeader)) {
       error_ = "authoritative deserialization: unsupported or missing version";
       return false;
@@ -863,8 +863,6 @@ bool archive_bundle_template(Archive& ar, const std::string& p, Value& v) {
                 v.span_visual_assembly.support_path_enabled) ||
       !ar.field(p, "span_visual_assembly.helix_radius_m", v.span_visual_assembly.helix_radius_m) ||
       !ar.field(p, "span_visual_assembly.helix_clearance_m", v.span_visual_assembly.helix_clearance_m) ||
-      !ar.field(p, "span_visual_assembly.helix_turns_per_meter", v.span_visual_assembly.helix_turns_per_meter) ||
-      !ar.field(p, "span_visual_assembly.helix_samples_per_turn", v.span_visual_assembly.helix_samples_per_turn) ||
       !ar.field(p, "span_visual_assembly.endpoint_trim_m", v.span_visual_assembly.endpoint_trim_m) ||
       !ar.field(p, "span_visual_assembly.visual_member_count",
                 v.span_visual_assembly.visual_member_count) ||
@@ -881,7 +879,7 @@ bool archive_bundle_template(Archive& ar, const std::string& p, Value& v) {
 
 
 #ifdef _MSC_VER
-static_assert(sizeof(BundleTemplate) == 248, "field added: update archive visitor and full-fat persistence fixture");
+static_assert(sizeof(BundleTemplate) == 232, "field added: update archive visitor and full-fat persistence fixture");
 #endif
 
 template <typename Archive, typename Value>

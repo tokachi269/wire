@@ -365,6 +365,9 @@ void DrawCore(const city::wire::CoreView& view, const ViewerUiState& ui_state) {
   std::unordered_set<city::wire::ObjectId> spans_drawn_as_visual_parts{};
   const city::wire::VisualCurvePartCache& visual_curve_parts = view.visual_curve_parts();
   for (const city::wire::VisualCurvePart& part : visual_curve_parts.parts) {
+    if (part.supplemental_kind == city::wire::VisualSupplementalKind::kHelix) {
+      continue;
+    }
     if (part.samples.size() < 2) {
       continue;
     }

@@ -320,16 +320,25 @@ VisualCurvePart make_helix_part(const VisualCurvePart& support, const SpanVisual
                                 double radius) {
   VisualCurvePart helix = support;
   helix.supplemental_kind = VisualSupplementalKind::kHelix;
-  helix.pattern_offset_scale_m = radius;
+  helix.resolved_helix_radius_m = radius;
   helix.samples.clear();
   const double support_length = path_length(support.samples);
   const double trim = std::min(settings.endpoint_trim_m, support_length * 0.5);
   const double visible = support_length - trim * 2.0;
-  const int samples = std::max(4, static_cast<int>(std::ceil(visible * 4.0)));
-  if (visible <= kLengthToleranceM || samples < 2) return helix;
+  if (visible <= kLengthToleranceM) return helix;
   const double inset = top_inset(support, settings.helix_clearance_m);
-  for (int i = 0; i <= samples; ++i) {
-    const double distance = trim + visible * static_cast<double>(i) / static_cast<double>(samples);
+  std::vector<double> distances{trim};
+  double accumulated = 0.0;
+  for (std::size_t index = 1; index + 1 < support.samples.size(); ++index) {
+    accumulated += Length(support.samples[index] - support.samples[index - 1]);
+    if (accumulated > trim + kLengthToleranceM &&
+        accumulated < support_length - trim - kLengthToleranceM) {
+      distances.push_back(accumulated);
+    }
+  }
+  distances.push_back(support_length - trim);
+  helix.samples.reserve(distances.size());
+  for (double distance : distances) {
     const path_sample anchor = sample_at_distance(support.samples, distance);
     Vec3d lateral{};
     Vec3d up{};

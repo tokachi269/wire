@@ -285,8 +285,6 @@ void CoreState::register_default_bundle_templates() {
   optical.span_visual_assembly.support_path_enabled = true;
   optical.span_visual_assembly.helix_enabled = true;
   optical.span_visual_assembly.helix_clearance_m = 0.015;
-  optical.span_visual_assembly.helix_turns_per_meter = 1.8;
-  optical.span_visual_assembly.helix_samples_per_turn = 6;
   optical.span_visual_assembly.endpoint_trim_m = 1.05;
   optical.span_visual_assembly.visual_member_count = 2;
   optical.span_visual_assembly.visual_member_spacing_m = 0.014;

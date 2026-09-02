@@ -27,35 +27,45 @@ if (globalThis.FileReader === undefined) {
   };
 }
 
-function wireStations(lengthM, variant) {
-  const half = lengthM * 0.5;
+function straightStations(lengthM, variant) {
   const stationCount = Math.max(5, Math.ceil(lengthM * 2) + 1);
   return Array.from({ length: stationCount }, (_, index) => {
     const u = index / (stationCount - 1);
-    const x = -half + lengthM * u;
-    if (index === 0 || index === stationCount - 1 || variant === 1) return [x, 0, 0];
+    const x = lengthM * u;
+    if (index === 0 || index === stationCount - 1) return [x, 0, 0];
+    const signedZero = variant === 1 ? 0 : -0;
+    return [x, signedZero, 0];
+  });
+}
+
+function jitterStations(lengthM, variant) {
+  const stationCount = Math.max(5, Math.ceil(lengthM * 4) + 1);
+  return Array.from({ length: stationCount }, (_, index) => {
+    const u = index / (stationCount - 1);
+    const x = lengthM * u;
+    if (index === 0 || index === stationCount - 1) return [x, 0, 0];
     const envelope = Math.sin(Math.PI * u);
+    const phase = variant === 1 ? 0.35 : 1.05;
     return [
       x,
-      0.012 * envelope * Math.sin(4 * Math.PI * u + 0.35),
-      0.008 * envelope * Math.sin(6 * Math.PI * u + 1.1)
+      0.012 * envelope * Math.sin(4 * Math.PI * u + phase),
+      0.008 * envelope * Math.sin(6 * Math.PI * u + phase + 0.75)
     ];
   });
 }
 
 function helixStations(lengthM, variant) {
-  const half = lengthM * 0.5;
-  const turnsPerMeter = variant === 1 ? 1.75 : 2.0;
-  // Helix assets use a unit cross-section. Core supplies the resolved radius
-  // as the appearance-piece scale, so the GLB does not become its owner.
+  const turnsPerMeter = 1.8;
   const radius = 1.0;
   const stationCount = Math.max(17, Math.ceil(lengthM * turnsPerMeter * 16) + 1);
   return Array.from({ length: stationCount }, (_, index) => {
     const u = index / (stationCount - 1);
-    const x = -half + lengthM * u;
+    const x = lengthM * u;
     if (index === 0 || index === stationCount - 1) return [x, 0, 0];
     const envelope = Math.sin(Math.PI * u) ** 2;
-    const phase = 2 * Math.PI * turnsPerMeter * lengthM * u;
+    const phaseBias = variant === 1 ? 0.0 : Math.PI * 0.5;
+    const localVariation = variant === 1 ? 0.0 : 0.025 * Math.sin(2 * Math.PI * u);
+    const phase = 2 * Math.PI * turnsPerMeter * lengthM * u + phaseBias + localVariation;
     return [x, radius * envelope * Math.cos(phase), radius * envelope * Math.sin(phase)];
   });
 }
@@ -77,11 +87,10 @@ function lineObject(name, stations) {
 
 function validateStations(name, stations, lengthM) {
   if (stations.length < 5) throw new Error(`${name}: at least five longitudinal stations are required`);
-  const half = lengthM * 0.5;
   const first = stations[0];
   const last = stations[stations.length - 1];
   const tolerance = 1e-9;
-  if (Math.abs(first[0] + half) > tolerance || Math.abs(last[0] - half) > tolerance) {
+  if (Math.abs(first[0]) > tolerance || Math.abs(last[0] - lengthM) > tolerance) {
     throw new Error(`${name}: authored X bounds do not match ${lengthM}m`);
   }
   if ([first[1], first[2], last[1], last[2]].some((value) => Math.abs(value) > tolerance)) {
@@ -107,7 +116,8 @@ async function writeGlb(relativeDirectory, name, lengthM, stations) {
 
 for (const [directory, lengthM] of [["main", 4], ["connection", 1]]) {
   for (const variant of [1, 2]) {
-    await writeGlb(directory, `wire_${variant}`, lengthM, wireStations(lengthM, variant));
+    await writeGlb(directory, `straight_${variant}`, lengthM, straightStations(lengthM, variant));
+    await writeGlb(directory, `jitter_${variant}`, lengthM, jitterStations(lengthM, variant));
     await writeGlb(directory, `helix_${variant}`, lengthM, helixStations(lengthM, variant));
   }
 }

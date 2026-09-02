@@ -1452,10 +1452,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "route variation density and spread controls resolve and atomically apply across the exposed evaluation range",
                          "Differential", false,
                          C895_route_variation_controls_resolve_and_apply_full_range);
-  test_registry::AddTest(tests, "C896_visual_curve_appearance_plan_is_stable_and_covers_each_curve",
-                         "curve appearance pieces cover Core sag curves with deterministic 4m main and 1m connection assets",
+  test_registry::AddTest(tests, "C896_visual_curve_semantics_are_stable_without_asset_catalog_knowledge",
+                         "Core sag curves and resolved helix axis/radius remain stable without asset catalog knowledge",
                          "Invariant", false,
-                         C896_visual_curve_appearance_plan_is_stable_and_covers_each_curve);
+                         C896_visual_curve_semantics_are_stable_without_asset_catalog_knowledge);
   test_registry::AddTest(tests, "C852_backbone_near_angle_row_order_uses_degree_contract",
                          "near-angle physical rows use degree ordering independent of path direction",
                          "Invariant", false,

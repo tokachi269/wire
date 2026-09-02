@@ -853,7 +853,6 @@ std::optional<TemplateInspectionView> CoreView::inspect_bundle_template(BundleTe
   result.properties.push_back({"span_visual_assembly.helix_enabled", BoolText(tpl.span_visual_assembly.helix_enabled), PropertyAccessKind::kEditable});
   result.properties.push_back({"span_visual_assembly.helix_radius_m", std::to_string(tpl.span_visual_assembly.helix_radius_m), PropertyAccessKind::kEditable});
   result.properties.push_back({"span_visual_assembly.helix_clearance_m", std::to_string(tpl.span_visual_assembly.helix_clearance_m), PropertyAccessKind::kEditable});
-  result.properties.push_back({"span_visual_assembly.helix_turns_per_meter", std::to_string(tpl.span_visual_assembly.helix_turns_per_meter), PropertyAccessKind::kEditable});
   result.properties.push_back({"span_visual_assembly.visual_member_count", std::to_string(tpl.span_visual_assembly.visual_member_count), PropertyAccessKind::kEditable});
   result.properties.push_back({"span_visual_assembly.visual_member_spacing_m", std::to_string(tpl.span_visual_assembly.visual_member_spacing_m), PropertyAccessKind::kEditable});
   result.properties.push_back({"cable_template_id", std::to_string(static_cast<unsigned long long>(tpl.cable_template_id)),

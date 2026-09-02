@@ -808,7 +808,6 @@ bool C761_default_optical_bundle_emits_helix() {
       communication_template == state.view().bundle_templates().end() ||
       !optical_template->second.span_visual_assembly.support_path_enabled ||
       !optical_template->second.span_visual_assembly.helix_enabled ||
-      optical_template->second.span_visual_assembly.helix_samples_per_turn != 6 ||
       optical_template->second.support_wire_pole_band_id != 0 ||
       communication_template->second.span_visual_assembly.helix_enabled ||
       communication_template->second.support_wire_pole_band_id != 0) return false;
@@ -3736,91 +3735,39 @@ bool C855_backbone_non_auto_main_span_sag_is_parabolic_once() {
   return true;
 }
 
-bool C896_visual_curve_appearance_plan_is_stable_and_covers_each_curve() {
-  const auto curve_length = [](const std::vector<city::wire::Vec3d>& samples) {
-    double length = 0.0;
-    for (std::size_t index = 1; index < samples.size(); ++index) {
-      length += city::wire::Length(samples[index] - samples[index - 1]);
-    }
-    return length;
-  };
+bool C896_visual_curve_semantics_are_stable_without_asset_catalog_knowledge() {
   const auto snapshot = [](const city::wire::CoreState& source) {
     std::ostringstream out;
     for (const city::wire::VisualCurvePart& part : source.view().visual_curve_parts().parts) {
       out << static_cast<int>(part.kind) << ':' << static_cast<int>(part.supplemental_kind) << ':'
           << part.source_node_id << ':' << part.source_edge_id << ':' << part.source_span_id << ':'
-          << part.source_bundle_id << ':' << part.lane_index;
-      for (const city::wire::VisualCurveAppearancePiece& piece : part.appearance_pieces) {
-        out << '|' << piece.asset_key << ':' << std::bit_cast<std::uint64_t>(piece.curve_start_m)
-            << ':' << std::bit_cast<std::uint64_t>(piece.curve_end_m) << ':'
-            << std::bit_cast<std::uint64_t>(piece.source_length_m) << ':'
-            << std::bit_cast<std::uint64_t>(piece.local_offset_scale_m) << ':' << piece.reverse;
+          << part.source_bundle_id << ':' << part.lane_index << ':'
+          << std::bit_cast<std::uint64_t>(part.resolved_helix_radius_m);
+      for (const city::wire::Vec3d& sample : part.samples) {
+        out << '|' << std::bit_cast<std::uint64_t>(sample.x) << ':'
+            << std::bit_cast<std::uint64_t>(sample.y) << ':'
+            << std::bit_cast<std::uint64_t>(sample.z);
       }
       out << '\n';
     }
     return out.str();
   };
-  const auto verify_plan = [&](const city::wire::CoreState& source,
-                               bool* saw_main, bool* saw_connection, bool* saw_helix) {
-    for (const city::wire::VisualCurvePart& part : source.view().visual_curve_parts().parts) {
-      if (part.supplemental_kind == city::wire::VisualSupplementalKind::kLocalDecoration) continue;
-      WIRE_TEST_EXPECT_PRESENCE(part.samples.size() >= 2,
-                                "appearance plan source curve has fewer than two samples");
-      WIRE_TEST_EXPECT_PRESENCE(!part.appearance_pieces.empty(),
-                                "visual curve has no appearance pieces");
-      const bool connection = part.kind == city::wire::VisualCurvePartKind::kNodePatch ||
-          part.kind == city::wire::VisualCurvePartKind::kLead ||
-          part.kind == city::wire::VisualCurvePartKind::kJumper;
-      const bool helix = part.supplemental_kind == city::wire::VisualSupplementalKind::kHelix;
-      const double source_length = connection ? 1.0 : 4.0;
-      const double total = curve_length(part.samples);
-      const std::size_t expected_count = std::max<std::size_t>(
-          1, static_cast<std::size_t>(std::ceil(total / source_length)));
-      WIRE_TEST_EXPECT_ORACLE(part.appearance_pieces.size() == expected_count,
-                              "appearance piece count does not follow ceil(curve/source)");
-      double expected_start = 0.0;
-      for (const city::wire::VisualCurveAppearancePiece& piece : part.appearance_pieces) {
-        WIRE_TEST_EXPECT_ORACLE(almost_equal(piece.curve_start_m, expected_start, 1e-12) &&
-                                    piece.curve_end_m + 1e-12 >= piece.curve_start_m &&
-                                    piece.curve_end_m - piece.curve_start_m <= source_length + 1e-12 &&
-                                    almost_equal(piece.source_length_m, source_length, 1e-12),
-                                "appearance pieces have a gap, overlap, or stretch their source asset");
-        WIRE_TEST_EXPECT_ORACLE(piece.asset_key.starts_with(connection ? "connection/" : "main/") &&
-                                    piece.asset_key.find(helix ? "helix_" : "wire_") != std::string::npos,
-                                "appearance family was not selected from Core curve semantics");
-        expected_start = piece.curve_end_m;
-      }
-      WIRE_TEST_EXPECT_ORACLE(almost_equal(expected_start, total, 1e-10),
-                              "appearance pieces do not cover the complete curve");
-      *saw_main = *saw_main || !connection;
-      *saw_connection = *saw_connection || connection;
-      *saw_helix = *saw_helix || helix;
-    }
-    return true;
-  };
 
   city::wire::CoreState state;
   const auto generated = state.GenerateFromBackboneSpec(poly3_req(state));
   WIRE_TEST_EXPECT(generated.ok, generated.error);
-  bool saw_main = false;
-  bool saw_connection = false;
-  bool saw_helix = false;
-  WIRE_TEST_EXPECT(verify_plan(state, &saw_main, &saw_connection, &saw_helix),
-                   "main/connection appearance plan verification failed");
-  WIRE_TEST_EXPECT_PRESENCE(saw_main && saw_connection,
-                            "fixture did not exercise both main and connection assets");
   const std::string before = snapshot(state);
   WIRE_TEST_EXPECT(!generated.value.generated_span_ids.empty(), "fixture generated no spans");
   WIRE_TEST_EXPECT(state.DeriveGeneratedSpanOutputs(generated.value.generated_span_ids.front()).ok,
                    "derived rebuild failed");
   WIRE_TEST_EXPECT_DIFFERENTIAL(snapshot(state) == before,
-                                "derived rebuild changed variant or reverse selection");
+                                "derived rebuild changed Core curve semantics");
   std::string saved{};
   WIRE_TEST_EXPECT(state.SerializeAuthoritative(&saved).ok, "save failed");
   city::wire::CoreState loaded;
   WIRE_TEST_EXPECT(loaded.DeserializeAuthoritative(saved).ok, "load failed");
   WIRE_TEST_EXPECT_DIFFERENTIAL(snapshot(loaded) == before,
-                                "save/load changed curve appearance plan");
+                                "save/load changed Core curve semantics");
 
   city::wire::CoreState optical;
   city::wire::BackboneSpec optical_request = line_req(optical);
@@ -3828,19 +3775,16 @@ bool C896_visual_curve_appearance_plan_is_stable_and_covers_each_curve() {
   add_backbone_bundle(optical_request, city::wire::BundleKind::kOptical);
   const auto optical_generated = optical.GenerateFromBackboneSpec(optical_request);
   WIRE_TEST_EXPECT(optical_generated.ok, optical_generated.error);
-  saw_main = false;
-  saw_connection = false;
-  saw_helix = false;
-  WIRE_TEST_EXPECT(verify_plan(optical, &saw_main, &saw_connection, &saw_helix),
-                   "helix appearance plan verification failed");
-  WIRE_TEST_EXPECT_PRESENCE(saw_helix, "optical fixture did not select the helix GLB family");
+  bool saw_helix = false;
   for (const city::wire::VisualCurvePart& part : optical.view().visual_curve_parts().parts) {
     if (part.supplemental_kind != city::wire::VisualSupplementalKind::kHelix) continue;
-    for (const city::wire::VisualCurveAppearancePiece& piece : part.appearance_pieces) {
-      WIRE_TEST_EXPECT_ORACLE(piece.local_offset_scale_m > 0.0,
-                              "Core did not pass the resolved helix radius to the asset adapter");
-    }
+    saw_helix = true;
+    WIRE_TEST_EXPECT_PRESENCE(part.samples.size() >= 2,
+                              "Core helix axis has fewer than two samples");
+    WIRE_TEST_EXPECT_ORACLE(part.resolved_helix_radius_m > 0.0,
+                            "Core did not resolve the helix geometry radius");
   }
+  WIRE_TEST_EXPECT_PRESENCE(saw_helix, "optical fixture did not emit a helix axis");
   return true;
 }
 

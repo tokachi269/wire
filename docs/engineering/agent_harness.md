@@ -59,6 +59,70 @@ fail-first
 
 各production editは、root cause、このeditが必要な理由、このeditがなければfailするfocused proofで説明できなければならない。Fix後に新しいfailureが出た場合、補償behaviorを足す前に直前の変更を縮小またはrevertできるか調べる。実装を通すために既存契約を弱めない。
 
+## Architecture-significant change workflow
+
+authoritative/persisted state、public/Core API、operation semantics、Decision owner、module/layer dependency、cross-layer/cross-domain dependency、fallback/special path、persistenceの変更はarchitecture-significantとして扱う。expected scopeより実変更範囲が広がった場合も途中からこのworkflowへ切り替える。全ての小bugや局所変更へ機械的に適用しない。
+
+architecture問題、繰り返すincident、新しいguardrailを検討する問題、既存分野が不明な問題では、実装前にSWEBOK v4を主taxonomyとしてproblemを既存software engineering knowledgeへ分類する。これはagent workflow内の調査であり、分類器、project固有taxonomy、恒久ledgerを作らない。複数Knowledge Areaを選んでよく、Systems Engineeringまで広がる場合だけSEBoKを補助にする。
+
+```text
+Problem:
+Observed symptom:
+Likely SWEBOK KA:
+Established terminology:
+Known techniques / literature:
+Project-specific gap:
+Need for a new Wire-specific mechanism:
+```
+
+既存技法がgapを満たす場合は名前を変えたframeworkを作らない。Wire固有mechanismが必要という欄は、既存技法・既存harness・既存authorityで埋まらない差だけを記述する。
+
+実装前にexpected impactを記録する。
+
+```text
+Goal:
+Problem classification:
+Expected owners:
+Expected modules:
+Expected state/schema impact:
+Expected dependency impact:
+Boundaries expected not to change:
+Known architectural risks:
+```
+
+実装後は同じ作業単位でactual impactとArchitecture Deltaを比較する。
+
+```text
+Actual owners:
+Actual modules:
+Actual state/schema impact:
+Actual dependency impact:
+Architecture Delta:
+Unexpected expansion:
+Explanation:
+```
+
+workflowは次の順序とする。
+
+```text
+problem classification
+  -> expected impact
+  -> implementation
+  -> actual impact
+  -> Architecture Delta
+  -> regression proof
+```
+
+ExpectedとActualが大きく異なる場合は補償実装を続けず、原因とscopeを評価する。特に第二のauthoritative representation、authoritative/derived意味の二重化、persisted mirror/cache、generic layerへのfeature固有概念の流入、guardを一時解除して既存operationを別経路から呼ぶこと、operation固有behaviorの下流materialization/viewerへの漏出、新しいfallback inference、expected impact外への説明不能な伝播は強い停止signalである。Tokenやpathはreview candidateを示せるだけで、これらの意味を単独では証明しない。
+
+完了時は三方向を分けてreviewする。
+
+- Backward: 既存product semantics、architecture contract、test contractを壊していないか。
+- Inward: 今回architecture上で実際に何を変えたか。ExpectedとActualの差を説明できるか。
+- Forward: 次の変更を不必要に難しくするauthority、dependency、special pathを増やしていないか。完全な自動判定は主張しない。
+
+Architecture observationのDSM、Reflexion Model、Architecture Delta、co-change、hotspotはreview evidenceであり、数値自体をfailure thresholdにしない。自動failureは既存architecture lintなどが客観的に判定できるcontract violationに限る。強いmechanismへ吸収された、他sensorと同じ情報しか出さない、有用なsignalがない、maintenance costがreview価値を上回るsensorは退役または統合を評価する。sensor数を品質目標にしない。
+
 ## 独立検証
 
 実装者によるtest passの申告だけでは完了evidenceにならない。実用的なら別contextまたは別agentで次を監査する。
@@ -135,6 +199,8 @@ Structural proof: invalid dependency or duplicate owner is rejected
 Counterfactual: temporary boundary violation is detected
 Stop condition:
 ```
+
+architecture-significantな場合は、このtemplateに前述のExpected ImpactとActual Impactを追加する。別のtask ledgerへ複写しない。
 
 ## 新規projectの立ち上げ
 

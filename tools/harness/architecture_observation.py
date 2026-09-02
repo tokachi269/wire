@@ -842,6 +842,17 @@ def architecture_delta_report(
         if re.match(r"^domains/[^/]+/include/.+\.hpp$", path)
     ]
     manifest_files = [path for path in touched if path == "tools/arch_manifest.json"]
+    architecture_guard_files = [
+        path
+        for path in touched
+        if path
+        in {
+            "tools/arch_manifest.json",
+            "tools/arch_lint.py",
+            "tools/harness/architecture_lint.py",
+            "web/tests/architecture_boundary.test.ts",
+        }
+    ]
     candidates = [
         {
             "name": "public_api_review",
@@ -897,6 +908,7 @@ def architecture_delta_report(
             "dependency_delta": dependency,
             "public_headers_touched": public_headers,
             "architecture_manifest_touched": manifest_files,
+            "architecture_guard_files_touched": architecture_guard_files,
             "source_classification_changes": classification_changes,
         },
         "human_review_candidates": [
@@ -974,6 +986,9 @@ def delta_markdown(report: Mapping[str, object]) -> str:
         lines.extend(["### Public headers touched", ""])
         headers = list(facts.get("public_headers_touched", []))
         lines.extend([f"- `{path}`" for path in headers] or ["None."])
+        lines.extend(["", "### Architecture guard files touched", ""])
+        guards = list(facts.get("architecture_guard_files_touched", []))
+        lines.extend([f"- `{path}`" for path in guards] or ["None."])
         lines.extend(["", "### Source classification changes", ""])
         rows = list(facts.get("source_classification_changes", []))
         lines.extend(

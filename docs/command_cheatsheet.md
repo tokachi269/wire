@@ -35,11 +35,27 @@ build-vs18-viewer-fetch\viewer\Debug\wire_viewer.exe
 
 ```cmd
 python tools\harness\test_architecture_lint.py
+python tools\harness\test_architecture_observation.py
 python tools\test_arch_lint.py
 python tools\arch_lint.py
 python tools\test_family_lint.py
 git diff --check
 ```
+
+## Architecture observation
+
+`graph`のdefault scopeはproduction sourceである。`--scope tests`または`--scope tools`で別scopeを確認できる。DSM、co-change、hotspotの数値はreview sensorでありquality gateではない。Reflexionのdivergence判定は既存architecture lintを再利用する。
+
+```cmd
+python tools\architecture_observation.py graph --format markdown
+python tools\architecture_observation.py graph --scope tests --format markdown
+python tools\architecture_observation.py reflexion --base <task-start-sha> --format markdown
+python tools\architecture_observation.py delta --base <task-start-sha> --format markdown
+python tools\architecture_observation.py history --recent-days 180 --format markdown
+python tools\architecture_observation.py hotspot --format markdown
+```
+
+`reflexion`は包括的なallowed-dependency graphを仮定せず、既存required/forbidden contract、既存lint結果、unmodeled relationを分けて表示する。`delta`は自動確定できるstructural factsとhuman review candidatesを分離し、pathやtokenからsemantics変更を断定しない。`history`はfirst-parent chain上で各commitをfirst parentとの差分として一度だけ数え、mass-changeをinclusive/exclusiveで表示する。
 
 ## clang-tidy
 

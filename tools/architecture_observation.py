@@ -141,7 +141,9 @@ def changed_paths(root: Path, base: str, base_snapshot: Mapping[str, str], curre
     return sorted(changes, key=lambda row: (str(row["paths"]), str(row["status"])))
 
 
-def added_fallback_terms(root: Path, base: str) -> list[dict[str, object]]:
+def added_fallback_terms(
+    root: Path, base: str, eligible_paths: set[str]
+) -> list[dict[str, object]]:
     output = run_git(root, "diff", "--unified=0", base, "--").stdout
     result: list[dict[str, object]] = []
     current_path = ""
@@ -152,7 +154,11 @@ def added_fallback_terms(root: Path, base: str) -> list[dict[str, object]]:
         elif line.startswith("@@"):
             marker = line.split("+")[1].split(" ")[0]
             current_line = int(marker.split(",")[0])
-        elif line.startswith("+") and not line.startswith("+++"):
+        elif (
+            line.startswith("+")
+            and not line.startswith("+++")
+            and current_path in eligible_paths
+        ):
             text = line[1:].strip()
             if any(term in text.lower() for term in ("fallback", "special path")):
                 result.append({"path": current_path, "line": current_line, "text": text})
@@ -198,6 +204,10 @@ def emit(value: object, rendered: str, args: argparse.Namespace) -> None:
 
 
 def main() -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(
         description="Observe architecture structure and evolution without defining product semantics."
     )
@@ -250,7 +260,11 @@ def main() -> int:
                 base_graph,
                 current_graph,
                 changed_paths(root, args.base, base_snapshot, current_snapshot),
-                fallback_term_evidence=added_fallback_terms(root, args.base),
+                fallback_term_evidence=added_fallback_terms(
+                    root,
+                    args.base,
+                    {str(node["path"]) for node in current_graph.get("nodes", [])},
+                ),
             )
             emit(report, delta_markdown(report), args)
         return 0

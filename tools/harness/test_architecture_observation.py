@@ -157,6 +157,7 @@ class ArchitectureObservationTest(unittest.TestCase):
                     "paths": ["domains/wire/include/city/wire/api.hpp"],
                 },
                 {"status": "M", "paths": ["docs/wire/backbone_operation_semantics.md"]},
+                {"status": "M", "paths": ["tools/arch_lint.py"]},
             ],
             fallback_term_evidence=[
                 {"path": "domains/wire/src/core.cpp", "line": 9, "text": "fallback"}
@@ -167,6 +168,7 @@ class ArchitectureObservationTest(unittest.TestCase):
             ["domains/wire/include/city/wire/api.hpp"],
             facts["public_headers_touched"],
         )
+        self.assertEqual(["tools/arch_lint.py"], facts["architecture_guard_files_touched"])
         candidates = {row["name"]: row for row in report["human_review_candidates"]}
         self.assertIn("public_api_review", candidates)
         self.assertIn("operation_semantics_review", candidates)

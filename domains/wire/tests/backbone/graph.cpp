@@ -6018,6 +6018,103 @@ bool C809_backbone_incremental_rows_use_one_support_level_per_pair() {
                             "independent support reservation changed after load");
     WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(independent_loaded);
   }
+  {
+    // 別ルートkeyでも、同じ名目取付位置の保存済みopen rowとは通常角で共有rowへ合流する (正本はbackbone_operation_semantics.md)
+    city::wire::CoreState merged;
+    city::wire::BackboneSpec merge_base = hv_poly3_req(merged);
+    WIRE_TEST_EXPECT(use_explicit_hv_placement(&merge_base), "merge base placement failed");
+    const auto merge_base_result = merged.GenerateFromBackboneSpec(merge_base);
+    WIRE_TEST_EXPECT_PRESENCE(merge_base_result.ok, merge_base_result.error);
+    const city::wire::ObjectId merge_junction = merge_base_result.value.generated_pole_ids.at(1);
+    const city::wire::Pole* merge_pole = merged.view().poles().find(merge_junction);
+    WIRE_TEST_EXPECT_PRESENCE(merge_pole != nullptr, "merge junction pole is missing");
+    const city::wire::Vec3d merge_junction_pos = merge_pole->world_transform.position;
+    const auto* merge_node = merged.view().backbone_node_for_pole(merge_junction);
+    WIRE_TEST_EXPECT_PRESENCE(merge_node != nullptr, "merge junction node is missing");
+    const city::wire::ObjectId merge_node_id = merge_node->node_id;
+    const auto add_merge_route = [&](std::uint64_t key, const city::wire::Vec3d& to) {
+      city::wire::BackboneSpec route = line_req(merged);
+      route.bundles.clear();
+      add_backbone_bundle(route, city::wire::BundleKind::kHighVoltage);
+      if (!use_explicit_hv_placement(&route)) return std::string{"merge placement failed"};
+      route.bundles.front().placement_key = key;
+      route.path.polyline = {merge_junction_pos, to};
+      route.path.node_specs = {pole_spec(0, merge_junction)};
+      const auto result = merged.GenerateFromBackboneSpec(route);
+      return result.ok ? std::string{} : result.error;
+    };
+    const auto hv_levels_at_merge_node = [&](const city::wire::CoreState& current) {
+      std::vector<int> levels{};
+      for (const auto& binding : current.view().backbone().port_bindings) {
+        if (binding.row_key.node_id != merge_node_id ||
+            binding.bundle_template_id != city::wire::kDefaultHighVoltageBundleTemplateId) {
+          continue;
+        }
+        levels.push_back(binding.support_level);
+      }
+      std::sort(levels.begin(), levels.end());
+      levels.erase(std::unique(levels.begin(), levels.end()), levels.end());
+      return levels;
+    };
+    const auto bundle_key_for_edge = [&](const city::wire::CoreState& current,
+                                         city::wire::ObjectId edge_id) {
+      for (const auto& binding : current.view().backbone().port_bindings) {
+        if (binding.row_key.node_id != merge_node_id || binding.row_key.edge_id != edge_id) continue;
+        const auto* edge_bundle = current.view().backbone_edge_bundle(binding.edge_bundle_id);
+        const auto* bundle = edge_bundle == nullptr ? nullptr
+            : current.view().bundles().find(edge_bundle->bundle_id);
+        if (bundle != nullptr) return bundle->placement_key;
+      }
+      return std::uint64_t{0};
+    };
+    // 挟角約136度は通常角であり、保存済みpairであるbase routeは合流相手にしない (open rowだけが相手)
+    WIRE_TEST_EXPECT(add_merge_route(2, {2.0, -10.0, 0.0}).empty(), "merge route B failed");
+    WIRE_TEST_EXPECT_ORACLE((hv_levels_at_merge_node(merged) == std::vector<int>{0, 1}),
+                            "merge route B did not take the next free level");
+    const std::size_t continuities_before = merged.view().backbone().row_continuities.size();
+    const auto merge_added = merged.GenerateFromBackboneSpec([&] {
+      city::wire::BackboneSpec route = line_req(merged);
+      route.bundles.clear();
+      add_backbone_bundle(route, city::wire::BundleKind::kHighVoltage);
+      use_explicit_hv_placement(&route);
+      route.bundles.front().placement_key = 3;
+      route.path.polyline = {merge_junction_pos, {32.0, 0.5, 0.0}};
+      route.path.node_specs = {pole_spec(0, merge_junction)};
+      return route;
+    }());
+    WIRE_TEST_EXPECT_PRESENCE(merge_added.ok, merge_added.error);
+    WIRE_TEST_EXPECT_ORACLE((hv_levels_at_merge_node(merged) == std::vector<int>{0, 1}),
+                            "merged route took a new support level instead of sharing the open row");
+    WIRE_TEST_EXPECT_ORACLE(
+        std::none_of(merged.view().bundles().items().begin(), merged.view().bundles().items().end(),
+                     [](const city::wire::Bundle& bundle) { return bundle.placement_key == 3; }),
+        "merged route created a separate Bundle identity");
+    const auto* merged_span = merged.view().spans().find(merge_added.value.generated_span_ids.front());
+    WIRE_TEST_EXPECT_PRESENCE(merged_span != nullptr, "merged route span is missing");
+    const auto* merged_binding =
+        merged.view().backbone_port_binding_for_port(merged_span->port_a_id);
+    const auto* merged_peer_binding =
+        merged.view().backbone_port_binding_for_port(merged_span->port_b_id);
+    const auto* merged_node_binding =
+        merged_binding != nullptr && merged_binding->row_key.node_id == merge_node_id
+            ? merged_binding
+            : merged_peer_binding;
+    WIRE_TEST_EXPECT_PRESENCE(merged_node_binding != nullptr, "merged route binding is missing");
+    WIRE_TEST_EXPECT_ORACLE(bundle_key_for_edge(merged, merged_node_binding->row_key.edge_id) == 2,
+                            "merged route edge did not join the existing route Bundle");
+    WIRE_TEST_EXPECT_DIFFERENTIAL(
+        merged.view().backbone().row_continuities.size() > continuities_before,
+        "merged route did not record row continuity with the existing open row");
+    WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(merged);
+    std::string merged_saved{};
+    WIRE_TEST_EXPECT(merged.SerializeAuthoritative(&merged_saved).ok, "merged state could not be saved");
+    city::wire::CoreState merged_loaded;
+    const auto merged_restored = merged_loaded.DeserializeAuthoritative(merged_saved);
+    WIRE_TEST_EXPECT_PRESENCE(merged_restored.ok, merged_restored.error);
+    WIRE_TEST_EXPECT_ORACLE((hv_levels_at_merge_node(merged_loaded) == std::vector<int>{0, 1}),
+                            "merged support assignment changed after load");
+    WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(merged_loaded);
+  }
   return true;
 }
 

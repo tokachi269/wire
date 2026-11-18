@@ -569,6 +569,20 @@ struct port_scope {
   int placement_band_id = 0;
 };
 
+// 同じnodeで共有rowへ合流できるのは、同じテンプレートの同じ名目取付位置とlane構成だけとする。
+bool bundle_shares_physical_anchor(const Bundle& bundle, const BackboneBundleSpec& spec) {
+  return bundle.bundle_template_id == spec.bundle_template_id &&
+         bundle.placement_explicit == spec.placement_explicit &&
+         (!spec.placement_explicit ||
+          (bundle.height_m == spec.height_m && bundle.lateral_m == spec.lateral_m));
+}
+
+bool bundle_merges_into_spec_row(const Bundle& bundle, const BackboneBundleSpec& spec, int count,
+                                 double spacing_m) {
+  return bundle_shares_physical_anchor(bundle, spec) && bundle.conductor_count == count &&
+         bundle.phase_spacing_m == spacing_m;
+}
+
 EditResult<spec_view> view_for(const CoreState& state, const BackboneBundleSpec& spec) {
   EditResult<spec_view> out{};
   const auto tmpl_it = state.view().bundle_templates().find(spec.bundle_template_id);
@@ -2739,7 +2753,8 @@ EditResult<std::vector<pipeline::PromotionPlanEntry>> pipeline::plan_promotions(
     node_id_by_local[i] = g_.nodes[i].saved;
   }
 
-  auto edge_bundle_for_spec = [&](ObjectId edge_id, const BackboneBundleSpec& spec,
+  auto edge_bundle_for_spec = [&](ObjectId edge_id, const BackboneBundleSpec& spec, int merge_count,
+                                  double merge_spacing_m,
                                   ObjectId* bundle_id) -> EditResult<ObjectId> {
     EditResult<ObjectId> found{};
     found.value = kInvalidObjectId;
@@ -2751,6 +2766,9 @@ EditResult<std::vector<pipeline::PromotionPlanEntry>> pipeline::plan_promotions(
     if (bundles_it == state_.view().backbone_index().edge_bundles.end()) {
       return found;
     }
+    ObjectId merged_edge_bundle = kInvalidObjectId;
+    ObjectId merged_bundle = kInvalidObjectId;
+    std::size_t merged_count = 0;
     for (ObjectId edge_bundle_id : bundles_it->second) {
       const SavedBackboneEdgeBundle* edge_bundle = state_.view().backbone_edge_bundle(edge_bundle_id);
       const Bundle* bundle = edge_bundle == nullptr ? nullptr : state_.view().bundles().find(edge_bundle->bundle_id);
@@ -2760,8 +2778,13 @@ EditResult<std::vector<pipeline::PromotionPlanEntry>> pipeline::plan_promotions(
       if (spec.source_bundle_id != kInvalidObjectId && bundle->id != spec.source_bundle_id) {
         continue;
       }
-      if (spec.placement_key != 0 &&
-          bundle->placement_key != spec.placement_key) {
+      if (spec.placement_key != 0 && bundle->placement_key != spec.placement_key) {
+        // 同じ名目取付位置の別ルートは共有rowへ合流できるが、同じkeyの相手を優先する。
+        if (bundle_merges_into_spec_row(*bundle, spec, merge_count, merge_spacing_m)) {
+          ++merged_count;
+          merged_edge_bundle = edge_bundle_id;
+          merged_bundle = bundle->id;
+        }
         continue;
       }
       if (found.value != kInvalidObjectId) {
@@ -2772,6 +2795,12 @@ EditResult<std::vector<pipeline::PromotionPlanEntry>> pipeline::plan_promotions(
       found.value = edge_bundle_id;
       if (bundle_id != nullptr) {
         *bundle_id = bundle->id;
+      }
+    }
+    if (found.value == kInvalidObjectId && merged_count == 1) {
+      found.value = merged_edge_bundle;
+      if (bundle_id != nullptr) {
+        *bundle_id = merged_bundle;
       }
     }
     return found;
@@ -2827,8 +2856,8 @@ EditResult<std::vector<pipeline::PromotionPlanEntry>> pipeline::plan_promotions(
         return false;
       }
       ObjectId bundle_id = kInvalidObjectId;
-      EditResult<ObjectId> edge_bundle =
-          edge_bundle_for_spec(existing.saved, spec, &bundle_id);
+      EditResult<ObjectId> edge_bundle = edge_bundle_for_spec(
+          existing.saved, spec, v.value.count, v.value.spacing_m, &bundle_id);
       if (!edge_bundle.ok) {
         out.error = edge_bundle.error;
         return false;
@@ -2925,6 +2954,7 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
     DerivedBackboneRowKey row_key{};
     int support_level = 0;
     int support_group_id = -1;
+    bool merged_anchor = false;
   };
   // 保存済みsupport groupを予約し、新規group idが衝突しない開始位置を求める。
   std::unordered_map<ObjectId, int> next_support_group_id_by_node{};
@@ -3062,8 +3092,10 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
     }
     return std::isfinite(angle) ? angle : 0.0;
   };
-  auto saved_rows_for_scope = [&](ObjectId node_id, BundleTemplateId bundle_template_id,
-                                  std::uint64_t placement_key) {
+  auto saved_rows_for_scope = [&](ObjectId node_id, const BackboneBundleSpec& bundle_spec,
+                                  int count, double spacing_m) {
+    const BundleTemplateId bundle_template_id = bundle_spec.bundle_template_id;
+    const std::uint64_t placement_key = bundle_spec.placement_key;
     EditResult<std::vector<saved_row_support>> out{};
     for (const SavedBackbonePortBinding& binding : state_.view().backbone().port_bindings) {
       if (binding.row_key.node_id != node_id ||
@@ -3074,9 +3106,12 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
           state_.view().backbone_edge_bundle(binding.edge_bundle_id);
       const Bundle* bundle =
           edge_bundle == nullptr ? nullptr : state_.view().bundles().find(edge_bundle->bundle_id);
+      const bool same_scope_key = placement_key == 0 || bundle == nullptr ||
+                                  bundle->placement_key == 0 ||
+                                  bundle->placement_key == placement_key;
       if (bundle == nullptr ||
-          (placement_key != 0 && bundle->placement_key != 0 &&
-           bundle->placement_key != placement_key)) {
+          (!same_scope_key &&
+           !bundle_merges_into_spec_row(*bundle, bundle_spec, count, spacing_m))) {
         continue;
       }
       if (binding.support_level < 0) {
@@ -3099,11 +3134,20 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
             return item.row_key == representation.value.row_key;
           });
       if (existing == out.value.end()) {
-        out.value.push_back({representation.value.row_key,
-                             binding.support_level,
-                             binding.support_group_id});
+        out.value.push_back({representation.value.row_key, binding.support_level,
+                             binding.support_group_id, !same_scope_key});
       } else if (existing->support_level != binding.support_level ||
                  existing->support_group_id != binding.support_group_id) {
+        // 同じkeyの保存済み判断が正本で、合流候補はそれを上書きしない。
+        if (!same_scope_key) {
+          continue;
+        }
+        if (existing->merged_anchor) {
+          existing->support_level = binding.support_level;
+          existing->support_group_id = binding.support_group_id;
+          existing->merged_anchor = false;
+          continue;
+        }
         out.error = "backbone unsupported: saved row support assignment is inconsistent";
         return out;
       }
@@ -3187,8 +3231,13 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
           ps.rows[active_rows.front()].node < g_.nodes.size()
               ? g_.nodes[ps.rows[active_rows.front()].node].saved
               : kInvalidObjectId;
-      EditResult<std::vector<saved_row_support>> existing_rows =
-          saved_rows_for_scope(node_id, tmpl->id, bundle_spec.placement_key);
+      const EditResult<spec_view> bundle_view = view_for(state_, bundle_spec);
+      if (!bundle_view.ok) {
+        out.error = bundle_view.error;
+        return out;
+      }
+      EditResult<std::vector<saved_row_support>> existing_rows = saved_rows_for_scope(
+          node_id, bundle_spec, bundle_view.value.count, bundle_view.value.spacing_m);
       if (!existing_rows.ok) {
         out.error = existing_rows.error;
         return out;
@@ -3213,10 +3262,7 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
         const Bundle* saved_bundle = edge_bundle == nullptr
             ? nullptr : state_.view().bundles().find(edge_bundle->bundle_id);
         if (saved_bundle == nullptr ||
-            saved_bundle->placement_explicit != bundle_spec.placement_explicit ||
-            (bundle_spec.placement_explicit &&
-             (saved_bundle->height_m != bundle_spec.height_m ||
-              saved_bundle->lateral_m != bundle_spec.lateral_m))) {
+            !bundle_shares_physical_anchor(*saved_bundle, bundle_spec)) {
           continue;
         }
         if (binding.support_level < 0) {

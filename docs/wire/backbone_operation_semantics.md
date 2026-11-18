@@ -235,6 +235,10 @@ support levelは物理fixture row単位で割り当てる。continuity単位で�
 
 既に低いlevelが別rowで埋まっている場合は、鋭角pairの2 rowへ次の2つの空きlevelを割り当てる。jumperはcontinuityを表すだけで、placement levelを共有させない。
 
+通常角pairの相手は`placement_key`で限定しない。別ルートのkeyであっても、同じnode、同じテンプレート、同じ名目取付位置、同じlane数とspacingを持つ保存済みopen rowとは、通常角のとき共有rowへ合流する。合流したedgeは既存の`Bundle`へ属し、その共有rowのsupport levelとsupport groupを引き継ぎ、laneごとの`SavedBackboneRowContinuity`を追加する。要求のplacement keyは新しい`Bundle`を作らない。
+
+合流相手は同じ`placement_key`を優先する。同じkeyの候補があればそれを使い、無い場合にだけ同じ名目取付位置の別keyを使う。同じ名目取付位置に候補が2つ以上ある場合は合流せず、それぞれ独立したrowとして扱う。保存済みpair rowは合流相手にしない。鋭角、異なる取付位置、異なるlane構成も合流しない。これらは従来どおり別rowとして次の空きlevelを使う。
+
 ### save schema
 
 saveスキーマとload原子性は[`state_and_persistence.md`](state_and_persistence.md)を正本とする。

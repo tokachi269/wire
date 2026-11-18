@@ -5909,6 +5909,87 @@ bool C809_backbone_incremental_rows_use_one_support_level_per_pair() {
   WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(loaded);
   WIRE_TEST_EXPECT_ORACLE(expected(loaded, junction, {0.0, 1.0, 2.0}),
                           "loaded junction levels are not {0,1,2}");
+
+  // Placement keys identify route instances, not exclusive physical support space.
+  // Equal anchors from independent routes must reserve the same set of levels.
+  for (const auto [branch_height, branch_lateral] :
+       {std::pair{9.2, -0.2}, std::pair{8.0, -0.2}, std::pair{9.2, 0.4}}) {
+    city::wire::CoreState independent;
+    city::wire::BackboneSpec route = hv_poly3_req(independent);
+    WIRE_TEST_EXPECT(use_explicit_hv_placement(&route), "independent base placement failed");
+    const auto route_result = independent.GenerateFromBackboneSpec(route);
+    WIRE_TEST_EXPECT_PRESENCE(route_result.ok, route_result.error);
+    const city::wire::ObjectId route_junction = route_result.value.generated_pole_ids.at(1);
+    const auto* route_node = independent.view().backbone_node_for_pole(route_junction);
+    WIRE_TEST_EXPECT_PRESENCE(route_node != nullptr, "independent junction node is missing");
+    const city::wire::ObjectId route_node_id = route_node->node_id;
+    const auto original_bindings = independent.view().backbone().port_bindings;
+    const auto original_continuities = independent.view().backbone().row_continuities;
+    std::unordered_set<city::wire::ObjectId> original_ids;
+    for (const auto& port : independent.view().ports().items()) original_ids.insert(port.id);
+    for (const auto& span : independent.view().spans().items()) original_ids.insert(span.id);
+    for (const auto& bundle : independent.view().bundles().items()) original_ids.insert(bundle.id);
+    route.path.polyline = {{12.0, 0.0, 0.0}, {20.0, -8.0, 0.0}};
+    route.path.node_specs = {pole_spec(0, route_junction)};
+    route.bundles.front().placement_key = 2;
+    route.bundles.front().height_m = branch_height;
+    route.bundles.front().lateral_m = branch_lateral;
+    const auto added = independent.GenerateFromBackboneSpec(route);
+    WIRE_TEST_EXPECT_PRESENCE(added.ok, added.error);
+    const auto check_levels = [&](const city::wire::CoreState& current) {
+      std::size_t checked = 0;
+      for (const auto& binding : current.view().backbone().port_bindings) {
+        if (binding.row_key.node_id != route_node_id) continue;
+        const auto* edge_bundle = current.view().backbone_edge_bundle(binding.edge_bundle_id);
+        const auto* bundle = edge_bundle == nullptr ? nullptr
+            : current.view().bundles().find(edge_bundle->bundle_id);
+        if (bundle == nullptr) return false;
+        if (bundle->placement_key == 2) {
+          if (binding.support_level !=
+              (branch_height == 9.2 && branch_lateral == -0.2 ? 1 : 0)) return false;
+          if (original_ids.contains(binding.port_id) || original_ids.contains(bundle->id)) return false;
+          ++checked;
+        }
+      }
+      return checked == 3;
+    };
+    WIRE_TEST_EXPECT_ORACLE(check_levels(independent),
+                            "independent placement reused an occupied support level or lowered a separate anchor");
+    const auto& after_continuities = independent.view().backbone().row_continuities;
+    WIRE_TEST_EXPECT_DIFFERENTIAL(
+        original_continuities.size() == after_continuities.size() &&
+            std::equal(original_continuities.begin(), original_continuities.end(),
+                       after_continuities.begin(), [](const auto& a, const auto& b) {
+              return a.node_id == b.node_id && a.a.edge_bundle_id == b.a.edge_bundle_id &&
+                  a.a.lane_index == b.a.lane_index && a.b.edge_bundle_id == b.b.edge_bundle_id &&
+                  a.b.lane_index == b.b.lane_index;
+            }),
+        "independent route changed existing continuity or paired by physical placement");
+    for (const auto span_id : added.value.generated_span_ids) {
+      const auto* span = independent.view().spans().find(span_id);
+      WIRE_TEST_EXPECT_ORACLE(
+          span != nullptr && !original_ids.contains(span_id) &&
+              !original_ids.contains(span->port_a_id) && !original_ids.contains(span->port_b_id),
+          "independent route reused an existing Span or Port identity");
+    }
+    for (const auto& before : original_bindings) {
+      const auto* after = independent.view().backbone_port_binding_for_port(before.port_id);
+      WIRE_TEST_EXPECT_DIFFERENTIAL(
+          after != nullptr && after->support_level == before.support_level &&
+              after->support_group_id == before.support_group_id,
+          "independent route changed an existing support assignment");
+    }
+    WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(independent);
+    std::string independent_saved;
+    WIRE_TEST_EXPECT(independent.SerializeAuthoritative(&independent_saved).ok,
+                     "independent support state could not be saved");
+    city::wire::CoreState independent_loaded;
+    const auto restored = independent_loaded.DeserializeAuthoritative(independent_saved);
+    WIRE_TEST_EXPECT_PRESENCE(restored.ok, restored.error);
+    WIRE_TEST_EXPECT_ORACLE(check_levels(independent_loaded),
+                            "independent support reservation changed after load");
+    WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(independent_loaded);
+  }
   return true;
 }
 

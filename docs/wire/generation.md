@@ -60,6 +60,8 @@ pole facingはこのcorner decisionの`node_forward`を消費し、角度や二�
 
 この多段配置は`BundleTemplate::enable_branch_down_offset`が有効なbundle placementだけに適用し、無効なplacementはrow数に関係なくlevel 0を維持する。`SavedBackbonePortBinding`はrowごとの`support_level`と`support_group_id`を保存し、save/loadやincremental generationで同じ配置判断を再利用する。
 
+段の予約は既存のrow placementで行う。同じnode・bundleテンプレート・名目取付位置を使う保存済みrowは、別ルートの`placement_key`であっても占有済みとして扱う。明示配置では高さと横位置、band配置では同じテンプレートのbandを名目取付位置とする。この照合は空き段の選択にだけ使い、Bundleの識別情報、接続、既存rowの再利用条件を変更しない。異なる取付位置の間の一般的な衝突回避は、この予約規則では保証しない。
+
 Port生成はpole bandまたはexplicit placementの論理anchorだけを使い、row数や保存済みPort高さから別のZ slotを決めない。support level/groupを確定するrow placementが唯一の段差decisionであり、Span layoutはそのdecisionから解決済みのbranch endpoint offsetを読む。
 
 段変更後の最終wire socketを`support_world`と`endpoint_world`の両方に使い、port位置は論理anchorとして保持する。LV/HVなどのcategory名自体はlowering条件にしない。

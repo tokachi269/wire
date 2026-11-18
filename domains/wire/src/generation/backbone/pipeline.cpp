@@ -3108,16 +3108,6 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
         return out;
       }
     }
-    std::vector<bool> used(out.value.size(), false);
-    for (const saved_row_support& row : out.value) {
-      const int level = row.support_level;
-      if (level < 0 || static_cast<std::size_t>(level) >= used.size() ||
-          used[static_cast<std::size_t>(level)]) {
-        out.error = "backbone unsupported: saved row support assignment is not contiguous";
-        return out;
-      }
-      used[static_cast<std::size_t>(level)] = true;
-    }
     out.ok = true;
     return out;
   };
@@ -3203,17 +3193,53 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
         out.error = existing_rows.error;
         return out;
       }
-      std::vector<bool> used_levels(
-          existing_rows.value.size() + active_rows.size() + 1, false);
+      std::unordered_set<std::size_t> used_levels{};
       for (const saved_row_support& saved : existing_rows.value) {
-        if (saved.support_level < 0 ||
-            static_cast<std::size_t>(saved.support_level) >=
-                used_levels.size()) {
+        if (saved.support_level < 0) {
           out.error =
               "backbone unsupported: saved row support level is invalid";
           return out;
         }
-        used_levels[static_cast<std::size_t>(saved.support_level)] = true;
+        used_levels.insert(static_cast<std::size_t>(saved.support_level));
+      }
+      // Reserve physical space across route identities without making those
+      // rows eligible for topology or support-group reuse below.
+      for (const SavedBackbonePortBinding& binding : state_.view().backbone().port_bindings) {
+        if (binding.row_key.node_id != node_id || binding.bundle_template_id != tmpl->id) {
+          continue;
+        }
+        const SavedBackboneEdgeBundle* edge_bundle =
+            state_.view().backbone_edge_bundle(binding.edge_bundle_id);
+        const Bundle* saved_bundle = edge_bundle == nullptr
+            ? nullptr : state_.view().bundles().find(edge_bundle->bundle_id);
+        if (saved_bundle == nullptr ||
+            saved_bundle->placement_explicit != bundle_spec.placement_explicit ||
+            (bundle_spec.placement_explicit &&
+             (saved_bundle->height_m != bundle_spec.height_m ||
+              saved_bundle->lateral_m != bundle_spec.lateral_m))) {
+          continue;
+        }
+        if (binding.support_level < 0) {
+          out.error = "backbone unsupported: saved row support level is invalid";
+          return out;
+        }
+        used_levels.insert(static_cast<std::size_t>(binding.support_level));
+      }
+      // A route may start above level zero when another route owns the lower
+      // levels. Its own rows must still be distinct and all lower slots occupied.
+      std::unordered_set<std::size_t> own_levels{};
+      for (const saved_row_support& saved : existing_rows.value) {
+        const std::size_t level = static_cast<std::size_t>(saved.support_level);
+        if (level >= used_levels.size() || !own_levels.insert(level).second) {
+          out.error = "backbone unsupported: saved row support assignment is not contiguous";
+          return out;
+        }
+        for (std::size_t lower = 0; lower < level; ++lower) {
+          if (!used_levels.contains(lower)) {
+            out.error = "backbone unsupported: saved row support assignment is not contiguous";
+            return out;
+          }
+        }
       }
       auto row_matches_saved = [&](std::size_t row_id,
                                    const saved_row_support& saved) {
@@ -3252,16 +3278,10 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
           support_level =
               static_cast<std::size_t>(selected_existing_level);
         } else {
-          while (support_level < used_levels.size() &&
-                 used_levels[support_level]) {
+          while (used_levels.contains(support_level)) {
             ++support_level;
           }
-          if (support_level >= used_levels.size()) {
-            out.error =
-                "backbone unsupported: support level allocation failed";
-            return out;
-          }
-          used_levels[support_level] = true;
+          used_levels.insert(support_level);
         }
         const int support_group_id =
             selected_existing_level >= 0 && selected_existing_group_id >= 0

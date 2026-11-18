@@ -17,9 +17,11 @@
 #include <array>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <tuple>
 #include <unordered_set>
 #include <vector>
 
@@ -1020,6 +1022,10 @@ bool backbone_common_invariants_pass(const city::wire::CoreState& state, std::st
   }
   const auto& fixture_plan = resolved_fixture_plan.value;
 
+  std::map<std::tuple<city::wire::ObjectId, city::wire::BundleTemplateId,
+                      bool, double, double, int>,
+           city::wire::generation::backbone::DerivedBackboneRowKey> occupied_rows{};
+
   for (const city::wire::SavedBackbonePortBinding& binding : graph.port_bindings) {
     const city::wire::SavedBackboneEdgeBundle* edge_bundle =
         view.backbone_edge_bundle(binding.edge_bundle_id);
@@ -1124,6 +1130,19 @@ bool backbone_common_invariants_pass(const city::wire::CoreState& state, std::st
                   " actual=" + std::to_string(local.y));
     }
     const auto template_it = view.bundle_templates().find(binding.bundle_template_id);
+    if (template_it != view.bundle_templates().end() &&
+        template_it->second.enable_branch_down_offset &&
+        template_it->second.branch_endpoint_offset_m != 0.0) {
+      const auto slot = std::make_tuple(binding.row_key.node_id, binding.bundle_template_id,
+          bundle->placement_explicit, bundle->placement_explicit ? bundle->height_m : 0.0,
+          bundle->placement_explicit ? bundle->lateral_m : 0.0, binding.support_level);
+      const auto [occupied, inserted] = occupied_rows.emplace(slot, representation.value.row_key);
+      if (!inserted && !(occupied->second == representation.value.row_key)) {
+        return fail("physical support rows share level " + std::to_string(binding.support_level) +
+                    " at node " + std::to_string(binding.row_key.node_id) +
+                    " template " + std::to_string(binding.bundle_template_id));
+      }
+    }
     const bool height_is_direct_anchor =
         !uses_lane_bands && (binding.support_level == 0 ||
         template_it == view.bundle_templates().end() ||

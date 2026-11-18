@@ -39,11 +39,11 @@ def table_after_heading(text: str, heading: str) -> list[str]:
     return table
 
 
-def parse_backbone_semantics_cells(text: str) -> tuple[set[str], list[str]]:
+def parse_backbone_semantics_cells(text: str) -> tuple[dict[str, str], list[str]]:
     source = "docs/wire/backbone_operation_semantics.md"
     table = table_after_heading(text, "## 操作×状態")
     if len(table) < 2:
-        return set(), [f"{source}: missing operation-state table"]
+        return {}, [f"{source}: missing operation-state table"]
 
     errors: list[str] = []
     header = markdown_cells(table[0])
@@ -57,7 +57,7 @@ def parse_backbone_semantics_cells(text: str) -> tuple[set[str], list[str]]:
             f"{source}: operation-state table state headers must be backtick ids"
         )
 
-    required: set[str] = set()
+    required: dict[str, str] = {}
     for line in table[1:]:
         cells = markdown_cells(line)
         if not cells or is_separator_row(cells):
@@ -73,12 +73,18 @@ def parse_backbone_semantics_cells(text: str) -> tuple[set[str], list[str]]:
         for state, value in zip(states, cells[1:]):
             code_values = set(re.findall(r"`([^`]+)`", value))
             bare = re.sub(r"`[^`]+`", "", value).strip()
-            if "-" in code_values or bare == "-":
+            if code_values == {"-"} or (not code_values and bare == "-"):
                 continue
-            if any(re.fullmatch(r"D\d+", item) for item in code_values):
+            if len(code_values) == 1 and any(re.fullmatch(r"D\d+", item) for item in code_values):
                 continue
-            if code_values.intersection({"C", "O", "K", "U"}):
-                required.add(f"BOS:{operation}:{state}")
+            outcomes = code_values.intersection({"C", "O", "K", "U"})
+            if outcomes and outcomes == code_values:
+                cell = f"BOS:{operation}:{state}"
+                if cell in required:
+                    errors.append(f"{source}: duplicate operation-state cell: {cell}")
+                required[cell] = "".join(sorted(outcomes))
+            else:
+                errors.append(f"{source}: unknown operation-state outcome: {operation}:{state}: {value}")
     return required, errors
 
 
@@ -107,7 +113,9 @@ def main() -> int:
         return 1
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text("".join(f"{cell}\n" for cell in sorted(required)), encoding="utf-8")
+    args.output.write_text(
+        "".join(f"{cell} {required[cell]}\n" for cell in sorted(required)), encoding="utf-8"
+    )
     return 0
 
 

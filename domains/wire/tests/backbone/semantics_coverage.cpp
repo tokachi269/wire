@@ -32,6 +32,21 @@ struct Endpoint {
   }
 };
 
+using ContinuityKey = std::tuple<city::wire::ObjectId, city::wire::ObjectId, std::size_t,
+                                 city::wire::ObjectId, std::size_t>;
+
+std::vector<ContinuityKey> continuity_keys(const city::wire::CoreState& state) {
+  std::vector<ContinuityKey> keys;
+  for (const auto& continuity : state.view().backbone().row_continuities) {
+    auto a = std::make_pair(continuity.a.edge_bundle_id, continuity.a.lane_index);
+    auto b = std::make_pair(continuity.b.edge_bundle_id, continuity.b.lane_index);
+    if (b < a) std::swap(a, b);
+    keys.emplace_back(continuity.node_id, a.first, a.second, b.first, b.second);
+  }
+  std::sort(keys.begin(), keys.end());
+  return keys;
+}
+
 struct Observation {
   std::string case_id{};
   Operation operation = Operation::kAddOneEdge;
@@ -39,6 +54,8 @@ struct Observation {
   Entry entry = Entry::kCoreApi;
   test_registry::TestFamily family = test_registry::TestFamily::kBehavior;
   std::vector<test_registry::AssertionKind> evidence{};
+  std::vector<ContinuityKey> continuity_before{};
+  char outcome = '\0';
 };
 
 std::vector<Observation>& observations() {
@@ -84,7 +101,7 @@ std::string cell_id(Operation operation, State state) {
   return std::string("BOS:") + operation_name(operation) + ":" + state_name(state);
 }
 
-std::set<std::string> load_required_cells(std::string* error) {
+std::map<std::string, std::string> load_required_cells(std::string* error) {
   std::ifstream input(WIRE_TEST_BACKBONE_SEMANTICS_CELLS_PATH);
   if (!input.is_open()) {
     if (error != nullptr) {
@@ -92,16 +109,19 @@ std::set<std::string> load_required_cells(std::string* error) {
     }
     return {};
   }
-  std::set<std::string> required;
+  std::map<std::string, std::string> required;
   std::string line;
   while (std::getline(input, line)) {
     if (!line.empty() && line.back() == '\r') line.pop_back();
     if (line.empty()) continue;
-    if (!line.starts_with("BOS:")) {
+    std::istringstream row(line);
+    std::string cell, outcomes, extra;
+    if (!(row >> cell >> outcomes) || row >> extra || !cell.starts_with("BOS:") ||
+        outcomes.find_first_not_of("COKU") != std::string::npos ||
+        !required.emplace(cell, outcomes).second) {
       if (error != nullptr) *error = "generated operation semantics cell list is malformed";
       return {};
     }
-    required.insert(line);
   }
   if (required.empty() && error != nullptr) *error = "operation semantics matrix has no required cells";
   return required;
@@ -201,9 +221,10 @@ bool classify(const city::wire::CoreState& state, city::wire::ObjectId pole_id,
   return true;
 }
 
-ObservationToken add_observation(Operation operation, State state, Entry entry) {
+ObservationToken add_observation(Operation operation, State state, Entry entry,
+                                 const city::wire::CoreState& before) {
   observations().push_back({test_registry::CurrentTestCaseId(), operation, state, entry,
-                            test_registry::CurrentTestFamily(), {}});
+                            test_registry::CurrentTestFamily(), {}, continuity_keys(before)});
   return ObservationToken{observations().size() - 1};
 }
 
@@ -222,7 +243,7 @@ bool Observe(Operation operation, Entry entry, const city::wire::CoreState& stat
     }
     return false;
   }
-  const ObservationToken observed = add_observation(operation, classified, entry);
+  const ObservationToken observed = add_observation(operation, classified, entry, state);
   if (token != nullptr) *token = observed;
   return true;
 }
@@ -241,7 +262,7 @@ bool ObserveEmpty(Operation operation, Entry entry, const city::wire::CoreState&
     }
     return false;
   }
-  const ObservationToken observed = add_observation(operation, State::kS0, entry);
+  const ObservationToken observed = add_observation(operation, State::kS0, entry, state);
   if (token != nullptr) *token = observed;
   return true;
 }
@@ -282,7 +303,7 @@ bool ObserveMidspan(Operation operation, Entry entry, city::wire::CoreState& sta
     }
     return false;
   }
-  const ObservationToken observed = add_observation(operation, State::kSM, entry);
+  const ObservationToken observed = add_observation(operation, State::kSM, entry, state);
   if (token != nullptr) *token = observed;
   return true;
 }
@@ -305,6 +326,46 @@ bool RecordObservationEvidence(ObservationToken token, test_registry::AssertionK
   return true;
 }
 
+bool VerifyOutcome(ObservationToken token, const city::wire::CoreState& state,
+                   std::string* error) {
+  if (token.index >= observations().size() ||
+      observations()[token.index].case_id != test_registry::CurrentTestCaseId()) {
+    if (error != nullptr) *error = "semantics outcome references an invalid observation";
+    return false;
+  }
+  Observation& observation = observations()[token.index];
+  const std::string cell = cell_id(observation.operation, observation.state);
+  const auto after = continuity_keys(state);
+  const auto& before = observation.continuity_before;
+  if (!std::includes(after.begin(), after.end(), before.begin(), before.end())) {
+    if (error != nullptr) *error = cell + " changed an existing continuity relation";
+    return false;
+  }
+  const bool adds_edges = observation.operation == Operation::kAddOneEdge ||
+                         observation.operation == Operation::kAddTwoEdges;
+  const char actual = adds_edges ? (after.size() > before.size() ? 'C' : 'O') : 'K';
+  if (!adds_edges && after != before) {
+    if (error != nullptr) *error = cell + " did not preserve exact continuity relations";
+    return false;
+  }
+  std::string parse_error;
+  const auto required = load_required_cells(&parse_error);
+  if (!parse_error.empty()) {
+    if (error != nullptr) *error = parse_error;
+    return false;
+  }
+  const auto expected = required.find(cell);
+  if (expected == required.end() || expected->second.find(actual) == std::string::npos) {
+    if (error != nullptr) {
+      *error = cell + " outcome " + actual + " disagrees with declared " +
+               (expected == required.end() ? "undefined cell" : expected->second);
+    }
+    return false;
+  }
+  observation.outcome = actual;
+  return true;
+}
+
 bool ValidateRecordedObservationEvidence(std::string* error) {
   std::set<std::string> weak;
   for (const Observation& observation : observations()) {
@@ -321,7 +382,7 @@ bool ValidateRecordedObservationEvidence(std::string* error) {
                              kind == test_registry::AssertionKind::kPresence ||
                              kind == test_registry::AssertionKind::kDifferential;
                     });
-    if (!has_observation_evidence) {
+    if (!has_observation_evidence || observation.outcome == '\0') {
       weak.insert(cell + " case:" + observation.case_id + " entry:" +
                   entry_name(observation.entry));
     }
@@ -329,7 +390,7 @@ bool ValidateRecordedObservationEvidence(std::string* error) {
   if (weak.empty()) return true;
   if (error != nullptr) {
     std::ostringstream out;
-    out << "observations without independent assertion: ";
+    out << "observations without independent assertion or checked outcome: ";
     std::size_t i = 0;
     for (const std::string& item : weak) {
       if (i++ > 0) out << ", ";
@@ -342,14 +403,14 @@ bool ValidateRecordedObservationEvidence(std::string* error) {
 
 bool ValidateRuntimeCoverage(std::string* error) {
   std::string parse_error;
-  const std::set<std::string> required = load_required_cells(&parse_error);
+  const auto required = load_required_cells(&parse_error);
   if (!parse_error.empty()) {
     if (error != nullptr) *error = parse_error;
     return false;
   }
   using CoveredEntry = std::pair<std::string, Entry>;
   std::set<CoveredEntry> required_entries;
-  for (const std::string& cell : required) {
+  for (const auto& [cell, outcomes] : required) {
     required_entries.emplace(cell, Entry::kCoreApi);
   }
   std::set<CoveredEntry> covered;

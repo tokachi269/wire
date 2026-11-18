@@ -59,8 +59,23 @@ class RepositoryArchitectureChecksTest(unittest.TestCase):
         required, errors = parse_backbone_semantics_cells(semantics)
         self.assertEqual([], errors)
         self.assertEqual(
-            {"BOS:add_one_edge:SM", "BOS:add_one_edge:S1"}, required
+            {"BOS:add_one_edge:SM": "O", "BOS:add_one_edge:S1": "C"}, required
         )
+
+    def test_backbone_semantics_preserves_alternative_outcomes_and_rejects_typos(self) -> None:
+        semantics = """
+## 操作×状態
+| Operation | `SM` | `S1` |
+|---|---|---|
+| `add_one_edge` | template policyに従い`O`または`U` | `D2` |
+"""
+        required, errors = arch_lint.parse_backbone_semantics_cells(semantics)
+        self.assertEqual([], errors)
+        self.assertEqual({"BOS:add_one_edge:SM": "OU"}, required)
+        for invalid in ("`KK`", "`C`または`KK`", "`C`または`D2`", "`C`または`-`"):
+            with self.subTest(invalid=invalid):
+                _, errors = arch_lint.parse_backbone_semantics_cells(semantics.replace("`D2`", invalid))
+                self.assertTrue(any("unknown operation-state outcome" in error for error in errors))
 
     def test_authority_unique_owner_markdown_reaches_checker(self) -> None:
         ledger = "\n".join(

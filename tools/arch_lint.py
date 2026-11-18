@@ -135,6 +135,7 @@ def check_backbone_semantics_coverage(root: Path) -> list[str]:
             "ObserveMidspan",
             "RecordObservationEvidence",
             "ValidateRecordedObservationEvidence",
+            "VerifyOutcome",
             "CurrentTestFamily",
             "TestFamily::kSourceGuard",
         ),

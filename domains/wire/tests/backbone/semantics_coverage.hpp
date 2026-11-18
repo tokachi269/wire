@@ -39,6 +39,9 @@ bool ObserveMidspan(Operation operation, Entry entry, city::wire::CoreState& sta
                     ObservationToken* token = nullptr);
 bool RecordObservationEvidence(ObservationToken token, test_registry::AssertionKind kind,
                                std::string* error);
+// Successful operation outcomes only; rejection category and atomicity need their own assertions.
+bool VerifyOutcome(ObservationToken token, const city::wire::CoreState& state,
+                   std::string* error);
 bool ValidateRecordedObservationEvidence(std::string* error);
 bool ValidateRuntimeCoverage(std::string* error);
 void ResetRuntimeCoverage();

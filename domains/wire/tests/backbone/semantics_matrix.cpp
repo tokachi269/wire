@@ -140,7 +140,10 @@ bool observe(MatrixFixture& fixture, Operation operation,
   return true;
 }
 
-bool expect_common_invariants(const city::wire::CoreState& state) {
+bool expect_common_invariants(const city::wire::CoreState& state,
+                              semantics_coverage::ObservationToken token) {
+  std::string error;
+  WIRE_TEST_EXPECT(semantics_coverage::VerifyOutcome(token, state, &error), error);
   WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
   return true;
 }
@@ -164,7 +167,7 @@ bool exercise_add_one(MatrixState initial) {
       observation,
       fixture.state.view().backbone().row_continuities.size() == continuity_before + (connects ? 1U : 0U),
       "add_one_edge continuity delta does not match the semantics matrix");
-  return expect_common_invariants(fixture.state);
+  return expect_common_invariants(fixture.state, observation);
 }
 
 bool exercise_add_two(MatrixState initial) {
@@ -187,7 +190,7 @@ bool exercise_add_two(MatrixState initial) {
       observation,
       fixture.state.view().backbone().row_continuities.size() == continuity_before + (connects ? 1U : 0U),
       "add_two_edges continuity delta does not match the semantics matrix");
-  return expect_common_invariants(fixture.state);
+  return expect_common_invariants(fixture.state, observation);
 }
 
 bool exercise_move(MatrixState initial) {
@@ -207,7 +210,7 @@ bool exercise_move(MatrixState initial) {
       observation,
       fixture.state.view().backbone().row_continuities.size() == continuity_before,
       "move_pole_angle changed recorded connectivity");
-  return expect_common_invariants(fixture.state);
+  return expect_common_invariants(fixture.state, observation);
 }
 
 bool exercise_update_placement(MatrixState initial) {
@@ -230,7 +233,7 @@ bool exercise_update_placement(MatrixState initial) {
       observation,
       fixture.state.view().backbone().row_continuities.size() == continuity_before,
       "update_placement changed recorded connectivity");
-  return expect_common_invariants(fixture.state);
+  return expect_common_invariants(fixture.state, observation);
 }
 
 bool exercise_save_load(MatrixState initial) {
@@ -249,7 +252,7 @@ bool exercise_save_load(MatrixState initial) {
       observation,
       loaded.view().backbone().row_continuities.size() == continuity_before,
       "save_load changed recorded connectivity");
-  return expect_common_invariants(loaded);
+  return expect_common_invariants(loaded, observation);
 }
 
 bool exercise_regenerate(MatrixState initial) {
@@ -267,7 +270,7 @@ bool exercise_regenerate(MatrixState initial) {
       observation,
       fixture.state.view().backbone().row_continuities.size() == continuity_before,
       "regenerate changed recorded connectivity");
-  return expect_common_invariants(fixture.state);
+  return expect_common_invariants(fixture.state, observation);
 }
 
 struct MidspanFixture {
@@ -413,7 +416,7 @@ bool exercise_midspan_add_one() {
                               "SM add_one_edge did not preserve source identity");
   WIRE_TEST_EXPECT_ANCHOR(midspan_connection_visual_exists(fixture.state, fixture),
                           "SM add_one_edge did not derive a midspan connection visual");
-  return expect_common_invariants(fixture.state);
+  return expect_common_invariants(fixture.state, observation);
 }
 
 bool exercise_midspan_update() {
@@ -434,7 +437,7 @@ bool exercise_midspan_update() {
                               "SM update lost source identity");
   WIRE_TEST_EXPECT_ANCHOR(midspan_connection_visual_exists(fixture.state, fixture),
                           "SM update lost midspan connection visual");
-  return expect_common_invariants(fixture.state);
+  return expect_common_invariants(fixture.state, observation);
 }
 
 bool exercise_midspan_save_load() {
@@ -453,7 +456,7 @@ bool exercise_midspan_save_load() {
                               "SM save_load lost source identity");
   WIRE_TEST_EXPECT_ANCHOR(midspan_connection_visual_exists(loaded, fixture),
                           "SM save_load lost midspan connection visual");
-  return expect_common_invariants(loaded);
+  return expect_common_invariants(loaded, observation);
 }
 
 bool exercise_midspan_regenerate() {
@@ -470,7 +473,7 @@ bool exercise_midspan_regenerate() {
                               "SM regenerate lost source identity");
   WIRE_TEST_EXPECT_ANCHOR(midspan_connection_visual_exists(fixture.state, fixture),
                           "SM regenerate lost midspan connection visual");
-  return expect_common_invariants(fixture.state);
+  return expect_common_invariants(fixture.state, observation);
 }
 bool exercise_empty(Operation operation) {
   city::wire::CoreState state;
@@ -499,6 +502,7 @@ bool exercise_empty(Operation operation) {
     WIRE_TEST_EXPECT_PRESENCE(loaded.DeserializeAuthoritative(saved).ok, "S0 load failed");
     WIRE_TEST_EXPECT_BOS_ANCHOR(observation, loaded.view().backbone().port_bindings.empty(),
                                 "S0 save_load created endpoint bindings");
+    return expect_common_invariants(loaded, observation);
   } else if (operation == Operation::kRegenerate) {
     city::wire::LayoutSettings settings = state.view().layout_settings();
     settings.min_side_scale += 0.01;
@@ -508,7 +512,7 @@ bool exercise_empty(Operation operation) {
   } else {
     WIRE_TEST_EXPECT_ORACLE(false, "operation is not defined for S0");
   }
-  return expect_common_invariants(state);
+  return expect_common_invariants(state, observation);
 }
 
 bool observation_evidence_is_cell_scoped() {
@@ -523,6 +527,7 @@ bool observation_evidence_is_cell_scoped() {
   const auto added_one = state_a.GenerateFromBackboneSpec(line_req(state_a));
   WIRE_TEST_EXPECT_BOS_PRESENCE(cell_a, added_one.ok && added_one.value.generated_span_ids.size() == 1,
                                 "counterfactual cell A operation result is missing");
+  WIRE_TEST_EXPECT(semantics_coverage::VerifyOutcome(cell_a, state_a, &error), error);
 
   city::wire::CoreState state_b;
   semantics_coverage::ObservationToken cell_b{};
@@ -537,6 +542,14 @@ bool observation_evidence_is_cell_scoped() {
   const bool accepted = semantics_coverage::ValidateRecordedObservationEvidence(&coverage_error);
   WIRE_TEST_EXPECT(!accepted && coverage_error.find("BOS:add_two_edges:S0") != std::string::npos,
                    "cell B without independent evidence was accepted");
+  WIRE_TEST_EXPECT_BOS_PRESENCE(cell_b, added_two.value.generated_span_ids.size() == 2,
+                                "counterfactual cell B span is missing");
+  coverage_error.clear();
+  WIRE_TEST_EXPECT(!semantics_coverage::ValidateRecordedObservationEvidence(&coverage_error) &&
+                       coverage_error.find("BOS:add_two_edges:S0") != std::string::npos,
+                   "cell B with evidence but no checked outcome was accepted");
+  WIRE_TEST_EXPECT(semantics_coverage::VerifyOutcome(cell_b, state_b, &error), error);
+  WIRE_TEST_EXPECT(semantics_coverage::ValidateRecordedObservationEvidence(&coverage_error), coverage_error);
   semantics_coverage::ResetRuntimeCoverage();
   return true;
 }
@@ -568,6 +581,8 @@ bool C836_backbone_operation_matrix_executes_declared_states() {
     WIRE_TEST_EXPECT(exercise_save_load(state), "save_load matrix row failed");
     WIRE_TEST_EXPECT(exercise_regenerate(state), "regenerate matrix row failed");
   }
+  std::string error;
+  WIRE_TEST_EXPECT(semantics_coverage::ValidateRecordedObservationEvidence(&error), error);
   return true;
 }
 

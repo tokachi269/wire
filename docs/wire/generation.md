@@ -110,3 +110,5 @@ pipelineのpreflightは、入力・identity・binding・構造上その時点で
 ## Dependency boundary
 
 private generationのownerは`domains/wire/src/generation/backbone`であり、source layerと禁止dependencyは[`tools/arch_manifest.json`](../../tools/arch_manifest.json)および既存architecture lintが検査する。CMake target graphや別のlayer taxonomyをこの文書のauthorityにしない。
+
+そのpublic operation入口を実装する`domains/wire/src/generation/generate_from_backbone.cpp`も同じgeneration責務に属し、private pipelineへ直接依存できる。その他のgeneration input utilityはpipelineを呼ばない。引用符付きのliteral includeは相対表記でも参照先を解決し、同じ禁止dependencyを検査する。macroで組み立てたinclude、未解決の参照、別名で再実装した判断の意味までは、この静的検査で保証しない。

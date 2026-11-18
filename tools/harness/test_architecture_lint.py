@@ -94,6 +94,28 @@ class ArchitectureLintTest(unittest.TestCase):
         result = self.run_lint({"src/core/model.src": "import ui_dependency"})
         self.assertTrue(any("core forbids 'ui_dependency'" in error for error in result.errors))
 
+    def test_relative_cpp_include_enforces_existing_path_boundary(self) -> None:
+        manifest = self.manifest()
+        manifest["scan"]["extensions"] = [".cpp", ".hpp"]
+        manifest["layers"][0]["patterns"] = ["src/core/*.cpp"]
+        manifest["layers"][0]["forbidden_tokens"] = ["src/ui/"]
+        manifest["layers"][1]["patterns"] = ["src/ui/*.hpp"]
+        for reference in ("../ui/private.hpp", "../core/../ui/private.hpp", "private.hpp"):
+            with self.subTest(reference=reference):
+                result = self.run_lint(
+                    {
+                        "src/core/input.cpp": f'#include "{reference}"',
+                        "src/ui/private.hpp": "#pragma once",
+                    },
+                    manifest,
+                )
+                self.assertTrue(any("through resolved include" in error for error in result.errors))
+        result = self.run_lint(
+            {"src/core/input.cpp": '#include "external.hpp"', "src/ui/private.hpp": "#pragma once"},
+            manifest,
+        )
+        self.assertEqual([], result.errors)
+
     def test_excluded_generated_source_passes(self) -> None:
         result = self.run_lint(
             {

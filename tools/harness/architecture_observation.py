@@ -17,7 +17,7 @@ from pathlib import PurePosixPath
 import re
 from typing import Callable, Iterable, Mapping, Sequence
 
-from architecture_lint import path_matches
+from architecture_lint import CPP_INCLUDE_RE, normalize_path, path_matches, resolve_cpp_reference
 
 
 PRODUCTION_EXCLUDED_LAYERS = {"tests", "web_tests", "tools"}
@@ -47,21 +47,6 @@ class CommitChange:
     committed_at: datetime
     files: frozenset[str]
     production_file_count: int
-
-
-def normalize_path(path: str) -> str:
-    parts: list[str] = []
-    for part in path.replace("\\", "/").split("/"):
-        if part in ("", "."):
-            continue
-        if part == "..":
-            if parts and parts[-1] != "..":
-                parts.pop()
-            else:
-                parts.append(part)
-            continue
-        parts.append(part)
-    return "/".join(parts)
 
 
 def domain_of(path: str) -> str:
@@ -165,7 +150,6 @@ def source_paths(
     return sorted(result)
 
 
-CPP_INCLUDE_RE = re.compile(r'^\s*#\s*include\s*"([^"]+)"', re.MULTILINE)
 TS_IMPORT_RE = re.compile(
     r'(?:\b(?:import|export)\b[^\n;]*?\bfrom\s*|\bimport\s*)["\']([^"\']+)["\']'
 )
@@ -178,25 +162,6 @@ TS_ASSET_SUFFIXES = {
     ".svg",
     ".webp",
 }
-
-
-def _resolve_cpp_reference(
-    source: str, reference: str, paths: set[str]
-) -> tuple[str | None, str | None]:
-    parent = PurePosixPath(source).parent
-    direct = normalize_path(str(parent / reference))
-    if direct in paths:
-        return direct, None
-    root_relative = normalize_path(reference)
-    if root_relative in paths:
-        return root_relative, None
-    suffix = f"/{root_relative}"
-    candidates = sorted(path for path in paths if path.endswith(suffix))
-    if len(candidates) == 1:
-        return candidates[0], None
-    if len(candidates) > 1:
-        return None, f"ambiguous internal include: {', '.join(candidates)}"
-    return None, "target is not a scanned repository source"
 
 
 def _resolve_ts_reference(
@@ -244,7 +209,7 @@ def build_graph(
         suffix = PurePosixPath(source).suffix
         if suffix in {".cpp", ".hpp"}:
             for reference in CPP_INCLUDE_RE.findall(text):
-                target, reason = _resolve_cpp_reference(source, reference, path_set)
+                target, reason = resolve_cpp_reference(source, reference, path_set)
                 if target is not None:
                     edges.add(DependencyEdge(source, target, "cpp_include", reference))
                 else:

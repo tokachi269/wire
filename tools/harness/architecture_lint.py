@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
 
@@ -14,6 +14,44 @@ class ArchitectureLintResult:
     errors: list[str]
     classified: dict[str, str]
     files: list[str]
+
+
+CPP_INCLUDE_RE = re.compile(r'^\s*#\s*include\s*"([^"]+)"', re.MULTILINE)
+
+
+def normalize_path(path: str) -> str:
+    parts: list[str] = []
+    for part in path.replace("\\", "/").split("/"):
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if parts and parts[-1] != "..":
+                parts.pop()
+            else:
+                parts.append(part)
+            continue
+        parts.append(part)
+    return "/".join(parts)
+
+
+
+def resolve_cpp_reference(
+    source: str, reference: str, paths: set[str]
+) -> tuple[str | None, str | None]:
+    parent = PurePosixPath(source).parent
+    direct = normalize_path(str(parent / reference))
+    if direct in paths:
+        return direct, None
+    root_relative = normalize_path(reference)
+    if root_relative in paths:
+        return root_relative, None
+    suffix = f"/{root_relative}"
+    candidates = sorted(path for path in paths if path.endswith(suffix))
+    if len(candidates) == 1:
+        return candidates[0], None
+    if len(candidates) > 1:
+        return None, f"ambiguous internal include: {', '.join(candidates)}"
+    return None, "target is not a scanned repository source"
 
 
 def relative_path(path: Path, root: Path) -> str:
@@ -169,6 +207,7 @@ def lint_architecture(
     classified: dict[str, str] = {}
     layers = list(validated["layers"])
     layers_by_name = {layer["name"]: layer for layer in layers}
+    path_set = set(files)
 
     for source in files:
         layer_matches = [
@@ -192,9 +231,17 @@ def lint_architecture(
         if layer_name is None:
             continue
         text = (root / source).read_text(encoding="utf-8", errors="replace")
+        targets = set()
+        if Path(source).suffix in {".cpp", ".hpp"}:
+            for reference in CPP_INCLUDE_RE.findall(text):
+                target, _ = resolve_cpp_reference(source, reference, path_set)
+                if target is not None:
+                    targets.add(target)
         for token in layers_by_name[layer_name].get("forbidden_tokens", []):
             if token in text:
                 errors.append(f"{source}: {layer_name} forbids {token!r}")
+            elif any(token in target for target in targets):
+                errors.append(f"{source}: {layer_name} forbids {token!r} through resolved include")
 
     return ArchitectureLintResult(
         errors=errors,

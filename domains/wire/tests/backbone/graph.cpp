@@ -4461,7 +4461,9 @@ bool C478_backbone_row_separation_is_deterministic() {
 
 bool C789_backbone_multi_route_same_band_endpoints_keep_spacing() {
   city::wire::CoreState state;
-  const auto first = state.GenerateFromBackboneSpec(hv_poly3_req(state));
+  city::wire::BackboneSpec base = hv_poly3_req(state);
+  base.bundles.front().placement_key = 1;
+  const auto first = state.GenerateFromBackboneSpec(base);
   if (!first.ok || first.value.generated_pole_ids.size() != 3) {
     return false;
   }
@@ -4472,6 +4474,7 @@ bool C789_backbone_multi_route_same_band_endpoints_keep_spacing() {
   if (pole == nullptr || pole_type_it == state.view().pole_types().end()) {
     return false;
   }
+  const city::wire::Vec3d junction_pos = pole->world_transform.position;
 
   struct EndpointAnchor {
     city::wire::ObjectId port_id = city::wire::kInvalidObjectId;
@@ -4503,60 +4506,85 @@ bool C789_backbone_multi_route_same_band_endpoints_keep_spacing() {
     }
     return found;
   };
-  std::vector<EndpointAnchor> before_endpoints{};
-  for (const city::wire::SavedBackbonePortBinding& binding : state.view().backbone().port_bindings) {
-    const city::wire::Port* port = state.view().ports().find(binding.port_id);
-    const std::optional<city::wire::Vec3d> endpoint = endpoint_for_port(state, binding.port_id);
-    if (port != nullptr && port->owner_pole_id == junction &&
-        endpoint.has_value() &&
-        binding.bundle_template_id == city::wire::kDefaultHighVoltageBundleTemplateId) {
-      before_endpoints.push_back({port->id, binding.placement_band_id, *endpoint});
+  const auto collect_hv_endpoints = [&]() {
+    std::vector<EndpointAnchor> endpoints{};
+    for (const city::wire::SavedBackbonePortBinding& binding : state.view().backbone().port_bindings) {
+      const city::wire::Port* port = state.view().ports().find(binding.port_id);
+      const std::optional<city::wire::Vec3d> endpoint = endpoint_for_port(state, binding.port_id);
+      if (port != nullptr && port->owner_pole_id == junction && endpoint.has_value() &&
+          binding.bundle_template_id == city::wire::kDefaultHighVoltageBundleTemplateId) {
+        endpoints.push_back({port->id, binding.placement_band_id, *endpoint});
+      }
     }
-  }
+    return endpoints;
+  };
+  const auto min_same_band_endpoint_distance =
+      [&](const std::vector<city::wire::ObjectId>& span_ids,
+          const std::vector<EndpointAnchor>& baseline) {
+    double distance = std::numeric_limits<double>::infinity();
+    for (city::wire::ObjectId span_id : span_ids) {
+      const city::wire::Span* span = state.view().spans().find(span_id);
+      if (span == nullptr) {
+        return -1.0;
+      }
+      for (city::wire::ObjectId port_id : {span->port_a_id, span->port_b_id}) {
+        const city::wire::Port* new_port = state.view().ports().find(port_id);
+        if (new_port == nullptr || new_port->owner_pole_id != junction) {
+          continue;
+        }
+        const city::wire::SavedBackbonePortBinding* new_binding =
+            state.view().backbone_port_binding_for_port(new_port->id);
+        const std::optional<city::wire::Vec3d> new_endpoint =
+            endpoint_for_port(state, new_port->id);
+        if (new_binding == nullptr || !new_endpoint.has_value()) {
+          return -1.0;
+        }
+        for (const EndpointAnchor& existing : baseline) {
+          if (existing.port_id == new_port->id ||
+              existing.placement_band_id != new_binding->placement_band_id) {
+            continue;
+          }
+          distance = std::min(distance,
+                              std::sqrt(dist2(existing.endpoint_world, *new_endpoint)));
+        }
+      }
+    }
+    return distance;
+  };
+
+  const std::vector<EndpointAnchor> before_endpoints = collect_hv_endpoints();
   if (before_endpoints.empty()) {
     return false;
   }
-
-  city::wire::BackboneSpec branch = hv_branch_req(state, junction, pole->world_transform.position);
+  city::wire::BackboneSpec branch = hv_branch_req(state, junction, junction_pos);
+  branch.bundles.front().placement_key = 1;
   const auto second = state.GenerateFromBackboneSpec(branch);
   if (!second.ok || second.value.generated_span_ids.size() != 3) {
     return false;
   }
+  const double branch_distance =
+      min_same_band_endpoint_distance(second.value.generated_span_ids, before_endpoints);
+  WIRE_TEST_EXPECT_ORACLE(std::isfinite(branch_distance) && branch_distance + 1e-9 >= 0.35,
+                          "same-route branch endpoints lost the final same-band spacing");
 
-  double min_same_band_endpoint_distance = std::numeric_limits<double>::infinity();
-  for (city::wire::ObjectId span_id : second.value.generated_span_ids) {
-    const city::wire::Span* span = state.view().spans().find(span_id);
-    if (span == nullptr) {
-      return false;
-    }
-    for (city::wire::ObjectId port_id : {span->port_a_id, span->port_b_id}) {
-      const city::wire::Port* new_port = state.view().ports().find(port_id);
-      if (new_port == nullptr || new_port->owner_pole_id != junction) {
-        continue;
-      }
-      const city::wire::SavedBackbonePortBinding* new_binding =
-          state.view().backbone_port_binding_for_port(new_port->id);
-      const std::optional<city::wire::Vec3d> new_endpoint =
-          endpoint_for_port(state, new_port->id);
-      if (new_binding == nullptr || !new_endpoint.has_value()) {
-        return false;
-      }
-      for (const EndpointAnchor& existing : before_endpoints) {
-        if (existing.port_id == new_port->id ||
-            existing.placement_band_id != new_binding->placement_band_id) {
-          continue;
-        }
-        min_same_band_endpoint_distance = std::min(
-            min_same_band_endpoint_distance,
-            std::sqrt(dist2(existing.endpoint_world, *new_endpoint)));
-      }
-    }
-  }
+  // 同じbandを使う別ルート識別子でも、物理的な間隔を同じ測り方で確かめる (C809は段番号までしか見ない)
+  const std::vector<EndpointAnchor> before_independent = collect_hv_endpoints();
+  city::wire::BackboneSpec independent = line_req(state);
+  independent.bundles.clear();
+  add_backbone_bundle(independent, city::wire::BundleKind::kHighVoltage);
+  independent.bundles.front().placement_key = 2;
+  independent.path.polyline = {junction_pos, {20.0, -12.0, 0.0}};
+  independent.path.node_specs = {pole_spec(0, junction)};
+  const auto third = state.GenerateFromBackboneSpec(independent);
+  WIRE_TEST_EXPECT_PRESENCE(third.ok, third.error);
+  const double independent_distance =
+      min_same_band_endpoint_distance(third.value.generated_span_ids, before_independent);
+  WIRE_TEST_EXPECT_ORACLE(
+      std::isfinite(independent_distance) && independent_distance + 1e-9 >= 0.35,
+      "independent route endpoints share a band without keeping the final spacing");
 
   WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
-  return std::isfinite(min_same_band_endpoint_distance) &&
-         min_same_band_endpoint_distance + 1e-9 >= 0.35 &&
-         curve_endpoints_match_layout(state);
+  return curve_endpoints_match_layout(state);
 }
 
 bool C790_backbone_duplicate_support_point_requires_node_reference() {

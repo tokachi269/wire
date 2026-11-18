@@ -466,7 +466,7 @@ matrix / aspectは外部仕様と観測点を表す。authority guardは、各�
 | C747 | Behavior | Invariant | range count policyは保存済みconductor countを検証し、範囲内なら出力を再生成せず、範囲外なら対象bundleを示して状態不変で拒否する | `legacy_unclassified` | range化を不要にregenerateする、または範囲外の既存bundleを黙って不整合にする回帰防止 |
 | C748 | Behavior | Invariant | bundle policy差分はscopeをfresh等価へreconcileし、fresh-invalid入力は状態変更前に拒否する | `legacy_unclassified` | topology policyをrejectし続ける、scope外を再導出する、freshでは拒否される入力をpartial状態変更する回帰防止 |
 | C749 | Behavior | Invariant | Offset=0はband既定位置から追加移動せず、他bundleにも影響されない | `legacy_unclassified` | bundle index由来の隠れた横offset、band中心無視、HV全laneの単一band展開への回帰防止 |
-| C789 | Behavior | Invariant | multi-route同一band rowはPortを共通の論理anchorに保ちながら、support levelを適用した最終endpoint間隔を保つ | `oracle` `anchor` | 論理Portの人工的Z分離を復活させる、または物理fixture/socketのrow separationを失う回帰を防ぐ |
+| C789 | Behavior | Invariant | multi-route同一band rowはPortを共通の論理anchorに保ちながら、同じルートの枝と別ルート識別子の両方でsupport levelを適用した最終endpoint間隔を保つ | `oracle` `anchor` | 論理Portの人工的Z分離を復活させる、物理fixture/socketのrow separationを失う、または別ルートが同じbandへ重なる回帰を防ぐ |
 | C790 | Behavior | Boundary | 既存supportと同一座標のpath pointは明示node referenceを要求する | `legacy_unclassified` | 既存supportを暗黙選択または重複poleとして後段処理へ進め、pair/occupancy探索を肥大化させる回帰防止 |
 | C703 | SourceGuard | Boundary | bundle count migrationシンボルはdomains/wire/srcから消える | `source_guard` | 差分別migration操作が残る回帰防止 |
 | C704 | SourceGuard | Boundary | regenerateはpost-edit APIから直接呼ばれupdate plan経由で実行しない | `source_guard` | pipeline内にmigration語が残る、またはplanが差分入力なしでregenerate実行経路になる回帰防止 |

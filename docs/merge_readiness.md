@@ -80,6 +80,9 @@ E. Docs stale only: `docs/viewer/operations.md`に残っていたbackbone span /
 | ID | 対象 | 観測した不足 | 次に確認すること |
 |---|---|---|---|
 | V1・対応済み | Wireの元の状態から初回loadへの派生等価性 | 旧C751は再loadの比較だけで、Span 54の`layout.end.endpoint_node_id`が0から55へ変わる差を見逃していた | 保存担当箇所が採番済みnode IDを一時graphへ反映するよう修正した。C751は元の状態→初回loadの意味値も比較する。モデルinstanceキャッシュ全体は対象外。根拠は[2026-11監査記録](../domains/wire/tests/audits/2026-11.md)を参照 |
+| V2・未対応 | `MovePole`の失敗時の状態不変 | 端の電柱を隣の電柱の位置へ移すとゼロ長として拒否するが、保存状態は変更される。マトリクスの成功経路とC813では検出できない | 失敗前後の正本・派生出力を既存の移動契約で直接比較し、更新全体の原子性を修正する |
+| V3・未対応 | ワークスペース読込全体の原子性 | 正常なWireと不正なRoadを含む文書は読込失敗になるが、Wireだけが置き換わり、表示用ストアは旧状態に残る | Core単体の読込契約と区別し、複数ドメインをまたぐ入口全体で失敗時の状態不変を保証する |
+| V4・未対応 | 連続生成後の保存・再導出の等価性 | 実WASMのクリック経路で3区間を連続生成すると、保存・再読込で一部のCableRun IDが変わる。座標とモデル配置の差は観測していない | 一括生成に限らず連続操作後の派生値を比較し、run IDを変える再導出範囲と原因を調べる |
 
 既にblockerから外したもの: `MovePole`で通常/鋭角閾値を跨ぐ場合の表現再導出。`C813_backbone_move_pole_rederives_pair_representation`が、endpoint Port IDとrow keyを維持したままfixture 1↔2、NodePatch↔jumperを切り替え、通常角へ戻せることを検証する。
 

@@ -10,6 +10,6 @@ RoadとWireは、明示的な確定操作に失敗した場合、機械可読な
 | `StateConflict` | 描画開始時には有効だった要求の参照先が、現在は古くなっている。 | anchorを更新して再試行する。 |
 | `InternalError` | 対応済みの経路で内部不変条件に違反したか、予期しない失敗が起きた。 | 調査のため理由コードとビルドIDを保存する。 |
 
-`RequirementConstraint`に分類できるのは、担当domainが既に文書化したルールに限る。現在の例は、Roadの入力pathの自己交差と、Wire templateで`allow_midair_branch`が無効な場合である。既存のRoad角度制限は、製品要件として別途定義しない限り`NotImplemented`のままとする。
+`RequirementConstraint`に分類できるのは、担当ドメインが既に文書化したルールに限る。現在の例は、Roadの入力pathの自己交差と、Wireテンプレートで`allow_midair_branch`が無効な場合である。既存のRoad角度制限は、製品要件として別途定義しない限り`NotImplemented`のままとする。
 
 境界から返す全ての失敗結果は、空でない`reasonCode`を持つ。従来の汎用エラーは、操作ごとの監査で具体的なコードが割り当てられるまで、分類自体のコードを使う。人間向けの`error`文字列は診断情報であり、UIの制御分岐には使わない。

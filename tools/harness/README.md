@@ -1,6 +1,6 @@
 # 移植可能なarchitecture lint
 
-`architecture_lint.py`はsource境界を検査するrepository非依存engineである。次の値を持つmanifestを受け取る。
+`architecture_lint.py`は、リポジトリに依存せずソースの層と境界を検査するエンジンである。次の設定を持つmanifestを受け取る。
 
 - `scan.roots`
 - `scan.extensions`
@@ -9,20 +9,22 @@
 - `layers[].patterns`
 - `layers[].forbidden_tokens`
 
-Scanした全file、各fileのexactly-one-layer分類、未分類・複数分類・forbidden tokenのerrorを返す。宣言したscan rootは必須であり、設定された対象fileが0件のscanはfailする。Project固有のdomain語彙は持たない。
+走査した全ファイル、各ファイルを1つの層へ割り当てた結果、未分類・複数分類・禁止tokenのエラーを返す。宣言した走査起点は必須であり、対象ファイルが0件の場合も失敗する。プロジェクト固有のドメイン語彙は持たない。
 
-C++の引用符付きliteral includeは、source相対、repository相対、scan対象内で一意なsuffixの順に参照先を解決する。解決済みのrepository相対pathにも既存のforbidden tokenを適用する。architecture observationも同じ解決処理を使う。compilerのinclude search pathやpreprocessor全体は再現しないため、macro include、候補が複数ある参照、scan対象外の参照はこの検査の保証範囲外である。
+C++の引用符付きliteral includeは、ソース相対、リポジトリ相対、走査対象内で一意なsuffixの順に参照先を解決する。解決先のリポジトリ相対pathにも、既存の禁止tokenを適用する。architecture observationも同じ解決処理を使う。
 
-Patternはslash区切りで、1つのpath segment内の`*`と`?`をsupportする。完全な`**` segmentは0個以上のnested directoryにmatchするため、`source/**/*.ext`はdirect childから任意の深さまでを含む。Recursive exclusionも同じ意味論を使う。Character classなどshell固有のglob機能はportable contractに含めない。
+compilerのinclude検索順やpreprocessor全体は再現しない。macro include、候補が複数ある参照、走査対象外の参照は、この検査では保証しない。
 
-Manifest errorはlint diagnosticとして返す。Rootとextensionは空でないstring list、layer nameは空でなく一意、patternとforbidden tokenはstring listでなければならない。暗黙のoptional-root behaviorは存在しない。
+パターンはslash区切りで、1つのpath segment内の`*`と`?`を扱う。完全な`**` segmentは0個以上の入れ子のdirectoryに一致する。`source/**/*.ext`は直下から任意の深さまでを含み、再帰的な除外にも同じ意味を適用する。文字クラスなどshell固有のglob機能は、共通契約には含めない。
 
-各projectは固有のmanifestとcomposition rootを持つ。Composition rootはproject設定をloadし、`lint_architecture`を呼び、その後にproject固有のdocument、semantic coverage、stable authorityの検査を追加する。
+manifestの不正はlintの診断として返す。Rootとextensionは空でないstring list、layer名は空でなく一意、patternと禁止tokenはstring listとする。走査起点を暗黙に任意扱いする動作は設けない。
 
-合成fixtureによるself-testは次で実行する。
+各プロジェクトは固有のmanifestとcomposition rootを持つ。composition rootで設定を読み込み、`lint_architecture`を呼ぶ。その後、プロジェクト固有の文書、操作意味論の検証範囲、安定した正本境界を検査する。
+
+合成fixtureによる自己テストは次のコマンドで実行する。
 
 ```powershell
 python tools/harness/test_architecture_lint.py
 ```
 
-Testはtemporary projectを使い、valid classification、required root、empty scan、malformed manifest、unclassified/multiply classified source、forbidden token、nested pattern、recursive exclusion、multiple scan root、composition-root delegationを検査する。
+テストでは一時プロジェクトを使う。正常な分類、必須の走査起点、空の走査結果、manifest不正、未分類・複数分類、禁止token、入れ子のpattern、再帰的な除外、複数の走査起点、composition rootからの呼び出し委譲を検査する。

@@ -1,34 +1,33 @@
-﻿# AGENTS.md
+# AGENTS.md
 
 ## 目的
-このリポジトリでは、見た目の自然さと内部整合の両方を重視する。  
-内部整合が取れていても、人間が見て不自然なら未完了とする。
+このリポジトリでは、見た目の自然さと内部整合の両方を重視する。内部整合が取れていても、人間が見て不自然なら未完了とする。
 
 ## 基本原則
-- 正本直書き禁止。公開 API または既存の正規更新経路を使う。
-- Manual 保持優先。全体再生成を既定にしない。
-- KISS を優先し、必要以上の抽象化や分岐を増やさない。
+- 正本へ直接書き込まない。公開APIまたは既存の正規更新経路を使う。
+- 手動で設定した値を優先して保持する。全体再生成を既定にしない。
+- KISSを優先し、必要以上の抽象化や分岐を増やさない。
 - Input / 正本 / 派生を混ぜない。
-- topology distinct と visual distinct は別に扱う。
+- topology distinctとvisual distinctは別に扱う。
 - 処理は可能な限りパイプラインとして構成し、各段の入力・出力・責務を明確に分ける。
-- docs・code・tests・viewer 挙動がズレる可能性を前提に、まず観測事実を優先する。
+- docs・code・テスト・viewer挙動がズレる可能性を前提に、まず観測事実を優先する。
 - 不明な点は不明のまま残し、想像で補完しない。
-  1. Generation 以外は `support_orientation_rule` を変えない
-  2. Materialization 以外は socket を変えない
-  3. Recalc は owner topic を変えない
-  4. Visual は world-space geometry を読むだけ
-- 変数名やメソッド名の命名は強い中心語を置き、修飾語を積んで説明しない。manager/helper/preparation/processor のような逃げ語を避ける。名前は近傍の namespace・型・ファイル文脈で読めるようにし、新語や言い換えを増やさない。
+  1. Generation以外は`support_orientation_rule`を変えない
+  2. Materialization以外はsocketを変えない
+  3. 再計算では判断の担当範囲を変えない
+  4. Visualはworld-space幾何を読むだけ
+- 変数名やメソッド名の命名は強い中心語を置き、修飾語を積んで説明しない。manager/helper/preparation/processorのような逃げ語を避ける。名前は近傍のnamespace・型・ファイル文脈で読めるようにし、新語や言い換えを増やさない。
 
 ## 設計方針
-- 文章ルールを増やすより、型・API・validator で守る。
+- 文章ルールを増やすより、型・API・validatorで守る。
 - 不正状態を型として作れないようにする。
-- 生の更新口を増やさない。中間構造や可変コンテナへの直接追加を避ける。
+- 直接状態を変更する入口を増やさない。中間構造や可変コンテナへの直接追加を避ける。
 - 後方互換が不要な変更では、互換用分岐や変換層を足さず現行の正規経路に統一する。
-- fallback は必要最小限にし、複数段で同じ意味を再解釈しない。
-- 同じ topic に対して、owner は 1 レイヤ 1 family だけにする。
+- fallbackは必要最小限にし、複数段で同じ意味を再解釈しない。
+- 同じ判断を担当する箇所は、1つの層と1つの処理群に限定する。
 - 同じ意味の決定を複数層で別々に持たない。決定結果は可能な限り一箇所で確定し、下流はそれを使う。
-- 下流は world 化するだけ、描くだけ、監視するだけに寄せ、上流の決定を再解釈しない。
-- 旧経路や互換用分岐は「使っていないなら残す」のではなく、削除候補として扱う。
+- 下流はworld化するだけ、描くだけ、監視するだけに寄せ、上流の決定を再解釈しない。
+- 旧経路や互換用分岐は、使われていない場合も削除候補として扱う。
 
 ## 実装時の判断基準
 - まず、直近の指示から以下を整理する。
@@ -37,17 +36,17 @@
   - 受け入れ条件
 - 局所修正で済むなら局所で直す。
 - ただし、同じ意味を別段で再判定しているなら構造改善を優先する。
-- bool や番兵値を安易に増やさない。
+- boolや番兵値を安易に増やさない。
 - 新しい例外分岐を足す前に、既存の責務境界が正しいかを確認する。
 
 ## 検証
 - メトリクスを通しただけで完了扱いにしない。
 - 可能なら数値観測を残す。
-- 可能なら validator / test で不変条件を固定する。
-- test は symptom を見るものと Authority を固定するものを分け、どちらを守る検証か明示する。
-- refresh / recalc 後に意味が痩せていないかを確認する。
-- viewer で違和感がある場合、core 幾何の問題か viewer 表示の問題かを切り分ける。
-- Tests are not always authoritative in this repo; prioritize observed behavior and architectural correctness over test assumptions when resolving failures.
+- 可能ならvalidator / テストで不変条件を固定する。
+- テストでは、症状の再現と正本の保護を区別し、どちらを検証するかを明示する。
+- refresh / recalc後に必要な意味情報が失われていないかを確認する。
+- viewerで違和感がある場合、core幾何の問題かviewer表示の問題かを切り分ける。
+- このリポジトリでは、テストの期待値が常に正しいとは限らない。失敗を解決するときは、観測した動作と設計契約を優先して期待値を確認する。
 
 ## 出力時に必要に応じて書くこと
 - 何を観測したか
@@ -66,8 +65,8 @@
 これらは都度の指示文に書く。
 
 ## KISS原則の強調
-- KISS を優先し、`GenerateFromBackboneSpec` 周辺は plan → validate → commit の薄い orchestrator を保つ。
-- 共通 pipeline と policy/resolver の責務分離を重視する。
+- KISSを優先し、`GenerateFromBackboneSpec`周辺ではplan → validate → commitの処理順の制御に専念する。
+- 共通pipelineとpolicy/resolverの責務分離を重視する。
 
 ## ビルド
-- 実績あるコマンドだけをまとめたものは docs/command_cheatsheet.md を参照。
+- 実績あるコマンドだけをまとめたものはdocs/command_cheatsheet.mdを参照。

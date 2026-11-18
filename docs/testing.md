@@ -1,22 +1,22 @@
 # 検証方針
 
-この文書はrepository全体で共有する、project非依存の検証方針の正本である。Architectureの意味論は`docs/architecture.md`と各domain architecture文書、操作の意味は操作意味論文書を正本とする。Test、ledger、manifest、coverage reportはevidenceであり、意味論の正本ではない。
+この文書では、リポジトリ全体で共有する検証方針を定義する。設計上の意味は`docs/architecture.md`と各ドメインの設計文書、操作の意味は操作意味論文書に従う。テスト、台帳、manifest、網羅性レポートは検証の証拠として使い、仕様の定義には使わない。
 
-Project固有の仕組みは別文書で定義する。このrepositoryでは[`wire/testing.md`](wire/testing.md)と[`road/testing.md`](road/testing.md)を参照する。
+プロジェクト固有の検証方法は別文書で定義する。このリポジトリでは[`wire/testing.md`](wire/testing.md)と[`road/testing.md`](road/testing.md)を参照する。
 
 ## 契約を中心とした検証
 
-管理単位はtest case数ではなく契約である。重要な契約は通常、次のevidenceを持つ。
+検証は契約単位で管理する。重要な契約には、通常は次の証拠を用意する。テストケース数は管理目標にしない。
 
-- Primary proof: 契約を最も直接的に証明する1件
-- Secondary proof: 異なるriskを検出できる場合に限る、1〜2件のproductionに近い別経路
-- Structural guard: 振る舞いだけでは構造を証明できない場合のdependency、type、compile/link、module、安定したsource境界
+- Primary proof: 契約を直接検証する主たる証拠を1件用意する
+- Secondary proof: 異なる故障を検出できる場合に限り、製品に近い別経路を1〜2件確認する
+- Structural guard: 動作確認だけでは構造を証明できない場合に、依存関係、型、コンパイル・リンク、モジュール、安定したソース境界を検査する
 
-Primary proofの欠落を、多数の間接scenarioやSourceGuardで代用しない。同じfaultへcaseを追加する前に、既存evidenceの強化・置換・退役を検討する。
+Primary proofを用意せず、多数の間接シナリオやSourceGuardで代用してはならない。同じ故障にテストを追加する前に、既存の検証を強化・置換・廃止できるか検討する。
 
 ## 保護手段の優先順位
 
-対象のfault classを防げる最も強い仕組みを優先する。
+対象の故障を防げる範囲で、最も強い保護手段を優先する。
 
 ```text
 capability / type / module boundary
@@ -27,72 +27,72 @@ capability / type / module boundary
   > full regression suite
 ```
 
-上位の仕組みが下位の仕組みを常に不要にするという意味ではない。異なるfault classを検出する仕組みは残す。品質はtest数やcoverage率ではなく、各重要契約に独立した証明があるかで評価する。
+上位の仕組みを導入しても、異なる故障を検出する下位の仕組みは残す。品質は、重要な契約ごとに独立した証明があるかで評価する。テスト数や網羅率は品質の目標にしない。
 
 ## Evidenceの分類
 
 | 分類 | 証明するもの |
 |---|---|
-| Structural | dependency、type、compile/link境界、安定したsource architecture |
+| Structural | 依存関係、型、コンパイル・リンク境界、安定したソース構造 |
 | Invariant / Contract | 正本状態と意味上の不変条件 |
 | Metamorphic | 入力反転、操作順、表現変更をまたいだ意味の保存 |
-| Differential | scoped/fullまたは等価なentry path間の一致 |
-| Scenario | 重要incidentの再現またはproductionに近い構成 |
-| End-to-end | adapter、transport、runtime、user-facing境界 |
+| Differential | 範囲を絞った再構築と全量再構築、または等価な入口の間での一致 |
+| Scenario | 重要な不具合の再現、または製品に近い構成での確認 |
+| End-to-end | adapter、通信、実行環境、ユーザー操作との境界 |
 
-SourceGuardはStructural evidenceであり、振る舞いの証明を代替しない。
+SourceGuardは構造の証拠として使う。動作が正しいことは別途検証する。
 
 ## Oracleの独立性
 
-Primary proofの期待値を、検査対象と同じproduction decisionやhelperを呼んで計算してはいけない。それで証明できるのは自己整合だけであり、正しさではない。独立した式またはoracle、既知のanchor、metamorphic relation、別実装・別経路とのdifferentialを使う。Production helperの再利用は、独立したPrimary proofがある場合のSecondary consistency assertionとしては利用できる。
+Primary proofの期待値は、検査対象と同じ判断処理や補助関数から計算してはならない。同じ処理を使うと、処理同士の一致しか確認できず、正しさを判断できない。独立した式や期待値の根拠、既知の基準値、入力変換に対する関係、別実装・別経路との比較を使う。独立したPrimary proofがある場合は、補助的な整合性検査に限って製品側の補助関数を再利用できる。
 
 ## 振る舞いprobe catalog
 
-Systemの性質と現実的なfault modelからprobeを選ぶ。このcatalogは必須checklistでもtest数quotaでもない。
+システムの性質と現実的な故障をもとに、検証方法を選ぶ。以下は選択肢の一覧であり、全項目の実施やテスト数の達成は要求しない。
 
 | Systemの性質 | 代表的なprobe |
 |---|---|
-| Stateful mutation | failure atomicity、無関係なstateへの非干渉、操作が保証する場合の決定的repeat |
-| Persistence | save → load → save、load後のderived rebuild equivalence、失敗したloadでidentity・ID・counterが不変 |
-| Incremental / cache結果 | incremental結果とclean/full rebuildのdifferential、update後のstale cache検出 |
-| Stable identity | array reorderでidentity不変、geometry変更でidentity不変、missing identityを近接・名前・順序から推測せず拒否 |
-| 独立したcomposition | A単独とA+B内のAを比較、独立componentの順序をpermutation |
-| 等価なentry | API、adapter、UI、transport entry間で意味上のrequest/resultを比較 |
-| Geometry / directional data | 定義された意味を保つinput reverse、symmetry、permutation |
-| Stateful sequence | seed固定の決定的操作列、各stepのinvariant、定期的persistence roundtrip、invalid操作でstate不変 |
+| 状態を持つ更新処理 | 失敗時の原子性、無関係な状態への非干渉、操作の契約に含まれる場合の決定的な繰り返し |
+| Persistence | save → load → save、load後に再構築した派生出力の等価性、失敗したloadで識別情報・ID・カウンターが不変 |
+| 差分更新・キャッシュ結果 | 差分更新結果と初期状態からの全量再構築の比較、更新後に古いキャッシュが残らないことの確認 |
+| 安定した識別情報 | 配列の並べ替えや幾何変更で識別情報が変わらないこと、識別情報が欠けた場合は近接・名前・順序から推測せず拒否すること |
+| 独立した構成要素の組み合わせ | A単独とA+Bに含まれるAの比較、独立した構成要素の順序の入れ替え |
+| 等価な入口 | API、adapter、UI、通信の入口で要求と結果の意味を比較 |
+| 幾何・方向付きデータ | 定義された意味を保つ入力反転、対称変換、順序の入れ替え |
+| 状態を持つ操作列 | seedを固定した決定的な操作列、各段階の不変条件、定期的な保存・復元、不正操作時の状態不変 |
 
 ### Pattern選択guide
 
 | Featureの性質 | 最初に検討するもの |
 |---|---|
-| authoritative mutation | atomicityとnon-interference |
-| cache / incremental derivation | full-vs-incremental differentialとstale-cache probe |
-| stable identity | reorderとgeometry-changeのmetamorphic probe |
-| persistence | roundtrip、derived rebuild、failed-load時のcounter安定性 |
-| 複数adapter / entry | semantic entry differential |
-| 順序非依存のcomposition | component permutationとA-vs-A+B |
-| directional geometry | reverse、symmetry、定義済みpermutation relation |
-| multi-step state machine | seeded sequence、stepごとのinvariant、定期roundtrip、invalid stepで不変 |
+| 正本の変更 | 原子性と無関係な状態への非干渉 |
+| キャッシュ・差分による派生生成 | 全量再構築と差分更新の比較、古いキャッシュが残らないことの確認 |
+| 安定した識別情報 | 並べ替えや幾何変更による識別情報の保存確認 |
+| persistence | 保存・復元、派生出力の再構築、load失敗時の採番カウンターの不変 |
+| 複数adapter / 入口 | 入口間で要求と結果の意味が一致することの確認 |
+| 順序に依存しない組み合わせ | 構成要素の並べ替え、A単独とA+B内のAの比較 |
+| 方向を持つ幾何 | 反転、対称変換、定義された順序変更の関係 |
+| 複数段階の状態遷移 | seedを固定した操作列、段階ごとの不変条件、定期的な保存・復元、不正操作時の状態不変 |
 
-実在する契約と現実的なfaultに対応するprobeだけを選ぶ。独立したoracleを持つ場合は、1つの性質に複数probeが必要なこともある。
+実在する契約と現実的な故障に対応する検証方法だけを選ぶ。独立した期待値の根拠を持つ場合は、1つの性質に複数の検証方法が必要なこともある。
 
 ## Fail-firstと診断
 
-新scenarioまたはbug fixでは、現行production behaviorが契約に違反することを最初に示す。すでにpassするcaseを追加するだけではregression proofにならない。Assertionは説明のないboolではなく、最初に失敗したoperation境界またはinvariantを示す。
+新しいシナリオの追加や不具合修正では、現在の動作が契約に違反することを最初に示す。追加した時点で成功するテストだけでは、回帰を防ぐ証拠にならない。失敗時のメッセージには、最初に失敗した操作境界か不変条件を記載する。説明のないboolだけを返してはならない。
 
-挙動変更ゼロを主張する変更では、authoritative byte equality、bit equality、既存behavioral testの無変更通過など、契約に適した等価性の証明方法を明示する。Skipされたtestはpassではない。
+挙動を変えない変更では、正本のbyte一致、bit一致、既存の動作テストを変更せず通過することなど、契約に適した等価性の証明方法を明示する。skipしたテストは成功に数えない。
 
 ## Testの有効性
 
-Line/branch coverageが示すのは実行でありfault検出ではない。小さく代表的なsemantic faultを注入し、意味のある契約境界でfailするかによりverification familyを評価する。構文的mutationは何も証明しないassertionの検出には有効だが、state ownership、stale derived output、partial mutation、transport drift、silent fallback failureまでは覆わない。
+行・分岐の網羅率で分かるのは、コードを実行した範囲である。故障の検出能力は、代表的な意味上の故障を少量注入し、契約に関わる境界で失敗するかを調べて評価する。構文を変えるmutation testingは、故障を見逃す検証条件の発見に使える。ただし、状態の所有権違反、古い派生出力、一部だけの状態変更、通信による意味のずれ、通知しないfallback失敗までは検証できない。
 
-過去incidentは価値の高いfault modelである。実用的ならold commitをbuildする代わりに同じsemantic faultを現行codeへ再現する。Mutationとsemantic fault injectionは一時的なverification auditであり、通常は恒久testとしてcommitしない。有用な調査履歴は現行契約仕様ではなくaudit logへ残す。
+過去の不具合は、注入する故障を選ぶ根拠になる。実用的な場合は、古いcommitをbuildする代わりに同じ意味上の故障を現在のコードで再現する。mutation testingと意味上の故障注入は一時的な検証監査として行い、通常は恒久テストとしてcommitしない。有用な調査履歴は監査ログへ残し、現行仕様には混ぜない。
 
-Green suiteからregressionが漏れた場合は、missing invariant、production fidelity不足、missing scenario、weak semantic assertion、condition complexity、implementation-detail assertion、旧fixが1 fixtureだけに閉じ込められている、のどれかを分類する。症状caseだけを追加せず、契約ownerを強化する。
+全テストが成功しても回帰を見逃した場合は、原因を次のいずれかに分類する。不変条件の不足、製品環境の再現不足、シナリオの不足、意味上の検証条件の弱さ、条件の複雑さ、実装詳細に依存した検証、過去の修正が1つのfixtureでしか確認されていないこと、である。症状を再現するテストだけを追加せず、契約を直接検証する箇所を強化する。
 
 ## Regression lifecycle
 
-Bug fixでは次のlifecycleを使う。
+不具合修正では次の手順に従う。
 
 ```text
 incident reproducer
@@ -106,30 +106,30 @@ incident reproducer
   -> 完全に包含されたreproducerを削除または縮小
 ```
 
-Bugごとに恒久testを1件残すことを既定にしない。その入力またはoracleが基礎契約の直接証明とは別の価値を持つ場合だけincident固有Scenarioを残す。
+不具合ごとに恒久テストを1件残すことは既定にしない。入力や期待値の根拠に、基礎契約の直接検証とは別の価値がある場合だけ、不具合固有のシナリオを残す。
 
-Production fixで新しいfailureが出た場合、まず直前の変更を縮小またはrevertできるか検討する。補償behaviorの追加を第一選択にしない。
+製品コードの修正で新しい失敗が出た場合、まず直前の変更を縮小またはrevertできるか検討する。別の処理を追加して補うことを第一選択にしない。
 
 ## Architecture structural guard
 
-Project architecture manifestはscan root、source extension、exclude、exactly-one-layer pattern、layerごとのforbidden tokenを定義できる。Structural lintはdependencyとownership境界を保護するが、projectのproduction semanticsをmanifestへ複写したり、token scanだけで意味上の正しさを主張したりしてはいけない。
+設計検査用manifestには、走査の起点、ソース拡張子、除外対象、各ファイルを1つの層へ割り当てるパターン、層ごとの禁止tokenを定義できる。構造lintは依存関係と責務の境界を検査する。製品仕様をmanifestへ複写したり、tokenの走査だけで意味上の正しさを保証したりしてはならない。
 
-より強いtype system、compile境界、module dependency、capability、architecture lintによりinvalid stateを表現不能にできた場合、source grep/regex guardは退役させる。廃止済み実装形状を恒久的に固定しない。
+型システム、コンパイル境界、モジュール依存、capability、設計lintで不正状態を表現不能にできた場合は、弱いソースgrep・正規表現guardを廃止する。廃止した実装の形を恒久的に固定しない。
 
 ## Testの退役
 
-既存testをverification consolidationとして削除できるのは、次をすべて満たす場合だけである。
+検証の統合を理由に既存テストを削除できるのは、次を全て満たす場合だけである。
 
 1. 契約が特定されている。
 2. 別のPrimary proofが存在する。
-3. 旧testが検出したfaultを再現できる。
-4. Primary proofがそのfaultを検出する。
-5. 旧testが独立したoracleを持たない。
+3. 旧テストが検出した故障を再現できる。
+4. Primary proofがその故障を検出する。
+5. 旧テストが独立した期待値の根拠を持たない。
 
-条件を証明できない疑似duplicateは残す。削除数を進捗にしない。
+条件を証明できない、重複の疑いがあるだけのテストは残す。削除数は進捗にしない。
 
 ## Full suite
 
-Focused proofはroot causeと直接の契約を証明する。Full suiteはcross-domain effect、registration gap、transport、既存契約との競合を調べるSecondary safety netであり、fail-first evidenceやfocused Primary proofの代替ではない。
+対象を絞った検証では、根本原因と直接の契約を確認する。全件テストでは、ドメインをまたぐ影響、登録漏れ、通信、既存契約との競合を補助的に調べる。修正前の失敗の証拠や、対象契約のPrimary proofは別途必要である。
 
-完了には、要求されたbehavior、そのarchitecture contract、focused proof、関連structural check、説明不能な補償がないこと、scope containmentが必要である。Full suiteがgreenであるだけでは不十分である。
+完了時には、要求された動作、対応する設計契約、対象を絞った検証、関連する構造検査、説明できない補償処理がないこと、依頼範囲に収まっていることを確認する。全件テストの成功だけで完了とは判断しない。

@@ -342,7 +342,7 @@ def check_draw_interaction_contract(root: Path) -> list[str]:
             "## 通常描画で対応する構成",
             "## 製品要件による制約",
             "## 失敗時の責務",
-            "modelを含む独立した12本のroute",
+            "モデルを含む独立した12本のroute",
         ),
         "web/src/store/viewer.ts": (
             "DrawActionResult",

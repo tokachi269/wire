@@ -17,7 +17,7 @@ T3は、混同しやすい定数を分類する調査である。本書は監査
 | `kDefaultCornerThresholdDeg` | `core_runtime_types.hpp` | 固定された契約 | `LayoutSettings`で公開する既定のlayout設定。隠れたコード変更ではなく、設定から調整する。 |
 | `kMaxCornerSideScale` | `core_runtime_types.hpp` | 固定された契約 | 公開されたlayoutの上限。変更すると生成幾何の方針も変わる。 |
 | `kSharpCornerInteriorAngleMaxDeg` | `row_representation.cpp` | 固定された契約 | ユーザー向け設定へ移すまでは、通常角と鋭角の表現境界を定義する。 |
-| `kRegenerateChangeMask` | `state/template/update.cpp` | 固定された契約 | template更新方針のbitmask契約。見た目の値ではない。 |
+| `kRegenerateChangeMask` | `state/template/update.cpp` | 固定された契約 | テンプレート更新方針のbitmask契約。見た目の値ではない。 |
 | `kMaxDebugRecords` | `state/template/ports.cpp` | 固定された契約 | debug storageの上限。生成幾何の値ではない。 |
 
 ## 見た目の方針
@@ -43,6 +43,6 @@ T3は、混同しやすい定数を分類する調査である。本書は監査
 
 ## 現時点の判断
 
-- T3では定数をconfigやtemplate fieldへ移さない。
-- topology、model assembly、永続化のbug修正に付随して、見た目の方針や調整候補を変更しない。
+- T3では定数をconfigやテンプレートフィールドへ移さない。
+- topology、モデルassembly、永続化のbug修正に付随して、見た目の方針や調整候補を変更しない。
 - 見える幾何へ影響する定数を追加する場合は、同じ変更でこの表へ追加する。

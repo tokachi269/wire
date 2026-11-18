@@ -44,7 +44,9 @@ git diff --check
 
 ## Architecture observation
 
-`graph`のdefault scopeはproduction sourceである。`--scope tests`または`--scope tools`で別scopeを確認できる。DSM、co-change、hotspotの数値はreview sensorでありquality gateではない。Reflexionのdivergence判定は既存architecture lintを再利用する。
+`graph`のdefault scopeはproduction sourceである。`--scope tests`または`--scope tools`で別scopeを確認できる。DSM、co-change、hotspotの数値はreview sensorでありquality gateではない。
+
+Reflexionのdivergence判定は既存architecture lintを再利用する。
 
 ```cmd
 python tools\architecture_observation.py graph --format markdown
@@ -55,7 +57,9 @@ python tools\architecture_observation.py history --recent-days 180 --format mark
 python tools\architecture_observation.py hotspot --format markdown
 ```
 
-`reflexion`は包括的なallowed-dependency graphを仮定せず、既存required/forbidden contract、既存lint結果、unmodeled relationを分けて表示する。`delta`は自動確定できるstructural factsとhuman review candidatesを分離し、pathやtokenからsemantics変更を断定しない。`history`はfirst-parent chain上で各commitをfirst parentとの差分として一度だけ数え、mass-changeをinclusive/exclusiveで表示する。
+`reflexion`は包括的なallowed-dependency graphを仮定せず、既存required/forbidden契約、既存lint結果、unmodeled relationを分けて表示する。`delta`は自動確定できるstructural factsとhuman review candidatesを分離し、pathやtokenから意味論変更を断定しない。
+
+`history`はfirst-parent chain上で各commitをfirst parentとの差分として一度だけ数え、mass-changeをinclusive/exclusiveで表示する。
 
 ## clang-tidy
 
@@ -67,7 +71,7 @@ cmake -S . -B build-clang-tidy -G Ninja -DWIRE_BUILD_VIEWER=OFF -DWIRE_ENABLE_PC
 cmake --build build-clang-tidy --target tidy-check
 ```
 
-調整中に小さいsubtreeだけを検査する場合:
+調整中に小さいsubtreeだけを検査する場合。
 
 ```cmd
 python tools\clang_tidy_check.py --build-dir build-clang-tidy --path domains/wire/src/state
@@ -83,7 +87,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\prepare_clang_uml_comp
 
 ## Web viewer WASM
 
-`emcc` / `emcmake` が PATH にある Emscripten shell で実行する。
+`emcc` / `emcmake`がPATHにあるEmscripten shellで実行する。
 
 ```powershell
 Set-Location web
@@ -93,23 +97,22 @@ npm test
 npm run build
 ```
 
-`npm test` は wasm 成果物を前提に実行し、結果報告では skip が 0 であることを確認する。
+`npm test`はwasm成果物を前提に実行し、結果報告ではskipが 0であることを確認する。
 
-個別に wasm だけを再構築する場合:
+個別にwasmだけを再構築する場合。
 
 ```powershell
 Set-Location web
 npm run wasm:build
 ```
 
-開発 server:
+開発server。
 
 ```powershell
 Set-Location web
 npm run dev
 ```
 
-`npm run dev`は起動時にCore/road/WASM bindingのsource fingerprintを確認する。
-生成済みWASMが同じsourceならそのまま起動し、古い場合だけ一度自動buildする。
-起動中もCore/road/WASM bindingの変更を監視し、source fingerprintが変わった場合はWASMを自動buildしてブラウザをfull reloadする。
-Git commit、docs、test、Web UIだけの変更ではWASMを再buildしない。
+`npm run dev`は起動時にCore/road/WASM bindingのsource fingerprintを確認する。生成済みWASMが同じsourceならそのまま起動し、古い場合だけ一度自動buildする。起動中もCore/road/WASM bindingの変更を監視し、source fingerprintが変わった場合はWASMを自動buildしてブラウザをfull reloadする。
+
+Git commit、docs、テスト、Web UIだけの変更ではWASMを再buildしない。

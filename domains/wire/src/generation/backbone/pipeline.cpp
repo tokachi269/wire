@@ -3230,7 +3230,7 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
       std::unordered_set<std::size_t> own_levels{};
       for (const saved_row_support& saved : existing_rows.value) {
         const std::size_t level = static_cast<std::size_t>(saved.support_level);
-        if (level >= used_levels.size() || !own_levels.insert(level).second) {
+        if (!own_levels.insert(level).second) {
           out.error = "backbone unsupported: saved row support assignment is not contiguous";
           return out;
         }

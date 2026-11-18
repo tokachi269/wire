@@ -509,11 +509,31 @@ bool C754_authoritative_load_rejects_invalid_text_without_mutation() {
   WIRE_TEST_EXPECT_PRESENCE(retry(state, &expected_retry, &expected_pending), "baseline branch retry failed");
   city::wire::CoreState valid_probe;
   WIRE_TEST_EXPECT_PRESENCE(valid_probe.DeserializeAuthoritative(saved).ok, "valid archive control failed");
+  // 保存済みの段を補完・振り直しする読込経路は別ルートの予約段を壊すため持たない (正本はstate_and_persistence.md)
+  const auto replaced_support_levels = [&](const std::string& value, bool all) {
+    const std::string key = ".support_level=";
+    std::string text = saved;
+    std::size_t at = text.find(key);
+    if (at == std::string::npos) return std::string{};
+    while (at != std::string::npos) {
+      const std::size_t value_begin = at + key.size();
+      text.replace(value_begin, text.find('\n', value_begin) - value_begin, value);
+      if (!all) break;
+      at = text.find(key, value_begin + value.size());
+    }
+    return text;
+  };
+  const std::string missing_support_levels = replaced_support_levels("-1", true);
+  const std::string ungrouped_lowered_row = replaced_support_levels("2", false);
+  WIRE_TEST_EXPECT_PRESENCE(!missing_support_levels.empty() && !ungrouped_lowered_row.empty(),
+                            "failed-load fixture has no saved support level fields");
   const std::vector<std::string> invalid = {
       "wire_state_v4\n",
       "wire_state_v5\n",
       saved + "unknown.key=1\n",
-      saved.substr(0, saved.find_last_of('\n', saved.size() - 2) + 1)};
+      saved.substr(0, saved.find_last_of('\n', saved.size() - 2) + 1),
+      missing_support_levels,
+      ungrouped_lowered_row};
   for (const std::string& text : invalid) {
     const auto loaded = state.DeserializeAuthoritative(text);
     WIRE_TEST_EXPECT_ANCHOR(!loaded.ok, "invalid load unexpectedly succeeded");

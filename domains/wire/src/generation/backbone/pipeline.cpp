@@ -4101,6 +4101,7 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
     }
     node_id_by_local[i] = state_.save_backbone_node(made.poles[i], g_.nodes[i].pos, g_.nodes[i].support, source_a,
                                                     source_b, g_.nodes[i].source_edge_t, g_.nodes[i].bundle_modes);
+    g_.nodes[i].saved = node_id_by_local[i];
     if (g_.nodes[i].on_route && i < path_index_by_local.size() && path_index_by_local[i] >= 0) {
       EditResult<bool> indexed =
           state_.bind_backbone_node_path_point_index(node_id_by_local[i], path_index_by_local[i]);

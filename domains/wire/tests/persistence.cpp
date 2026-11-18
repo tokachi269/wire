@@ -226,6 +226,15 @@ bool same_derived(const DerivedSnapshot& a, const DerivedSnapshot& b) {
   return true;
 }
 
+// Runtime versions and instrumentation are excluded by the persistence contract.
+bool same_derived_values(DerivedSnapshot a, DerivedSnapshot b) {
+  a.visual.stats = {};
+  b.visual.stats = {};
+  for (auto& part : a.visual.parts) part.source_version = 0;
+  for (auto& part : b.visual.parts) part.source_version = 0;
+  return same_derived(a, b);
+}
+
 city::wire::AttachmentTemplateId replace_attachment_template_id(const city::wire::CoreState& state) {
   for (const auto& [id, value] : state.view().attachment_templates()) {
     if (value.line_interaction_mode == city::wire::AttachmentLineInteractionMode::kReplaceWithInternalPath &&
@@ -392,13 +401,17 @@ bool make_roundtrip_source(city::wire::CoreState* state, std::string* saved, Der
 bool C751_authoritative_load_roundtrip_rederives_bit_exact_outputs() {
   city::wire::CoreState source;
   std::string saved{};
-  if (!make_roundtrip_source(&source, &saved, nullptr)) return false;
+  DerivedSnapshot source_output{};
+  WIRE_TEST_EXPECT_PRESENCE(make_roundtrip_source(&source, &saved, &source_output),
+                            "source roundtrip fixture failed");
   city::wire::CoreState first_load;
   const auto first_loaded = first_load.DeserializeAuthoritative(saved);
   WIRE_TEST_EXPECT_PRESENCE(first_loaded.ok, first_loaded.error);
   DerivedSnapshot before{};
   std::string canonical{};
-  if (!snapshot_derived(first_load, &before)) return false;
+  WIRE_TEST_EXPECT_PRESENCE(snapshot_derived(first_load, &before), "first load has no derived output");
+  WIRE_TEST_EXPECT_DIFFERENTIAL(same_derived_values(source_output, before),
+                                "first load changed source derived values");
   if (!first_load.SerializeAuthoritative(&canonical).ok) return false;
   city::wire::CoreState second_load;
   DerivedSnapshot after{};
@@ -581,7 +594,7 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "authoritative save is versioned, deterministic, and changes after state edit",
                          "Invariant", false, C750_authoritative_save_is_deterministic_and_changes_after_edit);
   test_registry::AddTest(tests, "C751_authoritative_load_roundtrip_rederives_bit_exact_outputs",
-                         "repeated authoritative loads reproduce bit-exact layout, curve, bounds, visual, and run ids",
+                         "authoritative load preserves source derived values and repeated-load bit equality",
                          "Invariant", false, C751_authoritative_load_roundtrip_rederives_bit_exact_outputs);
   test_registry::AddTest(tests, "C752_authoritative_load_resave_is_byte_identical",
                          "authoritative load resaves to identical bytes", "Exact", false,

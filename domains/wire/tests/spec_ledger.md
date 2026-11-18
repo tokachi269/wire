@@ -39,7 +39,7 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | Case ID | Family | 分類 | 目的 | Evidence | 壊れた時に守りたいユーザ価値 |
 |---|---|---|---|---|---|
 | C750 | Behavior | Invariant | authoritative save は version 付きで決定的かつ編集を反映する | `legacy_unclassified` | 保存結果の非決定性と編集の取りこぼしを防ぐ |
-| C751 | Behavior | Invariant | 初回loadと再loadの派生出力がbit一致する | `presence` `differential` | loadを繰り返した際のlayout・curve・bounds・visual・run IDの再現性を検証する。元の編集stateから初回loadへの完全等価性はV1保留 |
+| C751 | Behavior | Invariant | 元stateと初回loadの派生意味値がbit一致し、初回loadと再loadの完全比較も維持する | `presence` `differential` | layout・curve sample・bounds・visual curve・run IDを比較する。元stateとの比較では契約どおり実行時versionと診断用計測値を除外する。VisualModelInstanceCache全体はこのsnapshotの対象外 |
 | C752 | Behavior | Symptom | load後の再saveは元byteと一致する | `legacy_unclassified` | 保存と再読込の反復でproject fileを変質させない |
 | C753 | Behavior | Symptom | load後もID衝突なく編集を継続できる | `legacy_unclassified` | 読込後の編集で既存objectを上書きしない |
 | C754 | Behavior | Boundary | 不正loadは正本・派生出力・保留branchとその再試行結果を変更しない | `presence` `anchor` `differential` | 保存byteだけでは見えないcache破損、pending消費、identity採番の変化を防ぐ |

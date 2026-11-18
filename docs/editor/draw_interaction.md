@@ -1,114 +1,71 @@
-# Draw interaction
+# 描画操作
 
-Road and wire drawing use the same event contract. Domain geometry, snapping,
-validation, and commit requests remain owned by each domain.
+RoadとWireの描画は同じイベント契約に従う。domain固有の幾何、snap、検証、確定要求は、それぞれのdomainが所有する。
 
-## State
+## 状態
 
-A draw session is in one of three transient states:
+描画sessionは、次の3つの一時状態のいずれかを取る。
 
-- `idle`: no start anchor exists.
-- `anchored`: a start anchor exists, but there is no candidate interval.
-- `guide`: the current pointer input defines a candidate interval. The guide does
-  not claim that full domain generation will succeed.
+- `idle`: 開始anchorがない。
+- `anchored`: 開始anchorはあるが、区間候補がない。
+- `guide`: 現在のポインター入力から区間候補が得られている。ガイドはdomainの完全な生成が成功することまでは保証しない。
 
-Committed domain entities are not draw-session state. A preview, guide, pointer
-gesture, or start anchor is never persisted.
+確定済みのdomain entityは描画sessionの状態ではない。preview、ガイド、ポインターgesture、開始anchorは保存しない。
 
-## Click
+## クリック（Click）
 
-The first primary action establishes the start anchor. Once an anchor exists, a
-primary action submits the currently displayed guide to the domain operation.
-Full generation and validation run only at this commit boundary. A successful
-commit makes its endpoint the next start anchor and starts previewing the next
-interval.
+最初の主操作で開始anchorを設定する。anchorがある状態の主操作では、現在表示中のガイドをdomainの操作へ渡す。完全な生成と検証を実行するのは、この確定境界だけである。確定に成功すると、その終点を次の開始anchorとし、次の区間のpreviewを始める。
 
-The committed request and guide share the same input request. The guide does not
-run the full operation in advance and its presence never gates a primary action.
+確定要求とガイドは同じ入力要求を使う。ガイドのために完全な操作を先行実行せず、ガイドの有無を主操作の実行条件にもしない。
 
-Every primary Click records and returns one of `anchor-accepted`,
-`commit-succeeded`, `commit-rejected`, `operation-applied`, or an explicit
-`ignored` reason. A plain early return is not an interaction result.
+主操作のClickは毎回、`anchor-accepted`、`commit-succeeded`、`commit-rejected`、`operation-applied`、または理由付きの`ignored`を記録して返す。単に処理を抜けるだけでは操作結果にならない。
 
 ## Enter
 
-When a guide exists, Enter submits that interval through the same path as Click
-and ends the draw session only after success. With no guide, Enter ends the
-session. A failed commit preserves the guide and reports the commit failure.
-Enter also records its explicit action result; an inactive session is reported
-as `ignored/session-inactive` rather than disappearing silently.
+ガイドがある場合、EnterはClickと同じ経路でその区間を確定し、成功した場合だけ描画sessionを終了する。ガイドがなければsessionを終了する。確定に失敗した場合はガイドを維持し、失敗を報告する。Enterも明示的な操作結果を記録する。非activeなsessionへの入力は、黙って無視せず`ignored/session-inactive`として報告する。
 
 ## Escape
 
-Escape discards the uncommitted preview, anchor, and pointer gesture, then ends
-the draw session. It does not delete or undo committed domain operations.
-Escape with no active session reports `ignored/session-inactive`; it does not
-claim to have ended a session that never started.
+Escapeは未確定のpreview、anchor、ポインターgestureを破棄し、描画sessionを終了する。確定済みのdomain操作は削除せず、取り消さない。activeなsessionがない場合は`ignored/session-inactive`を返し、存在しなかったsessionを終了したとは報告しない。
 
-## Action results
+## 操作結果
 
-Both domains answer with the same `DrawActionResult`: `anchor-accepted`,
-`commit-succeeded`, `commit-rejected` with a reason code, `session-ended`,
-`operation-applied`, or `ignored` with a reason code. The viewer decides what
-happened from that result and from `CommitFailureCategory`, never by reading the
-error message.
+両domainは共通の`DrawActionResult`を返す。値は`anchor-accepted`、`commit-succeeded`、理由コード付きの`commit-rejected`、`session-ended`、`operation-applied`、または理由コード付きの`ignored`である。viewerはこの結果と`CommitFailureCategory`から何が起きたかを判断し、error文字列からは判断しない。
 
-`web/tests/drawSessionContract.ts` states the shared expectations and both road
-and wire run it:
+`web/tests/drawSessionContract.ts`が共通の期待動作を定義し、RoadとWireの両方が実行する。
 
-- Escape on an inactive session is `ignored`, and leaves no commit failure.
-- A rejected commit keeps its anchor, commits nothing, and reports a category
-  and a reason code.
-- Pointer movement does not overwrite the failure the last commit reported.
-- The same anchor can commit after a rejection, so a rejection is retryable.
-- Enter and Escape return an explicit result rather than a bare boolean.
+- 非activeなsessionでのEscapeは`ignored`となり、確定失敗を残さない。
+- 確定を拒否した場合、anchorを保持し、何も確定せず、分類と理由コードを報告する。
+- ポインター移動は、直前の確定操作が報告した失敗を上書きしない。
+- 拒否後も同じanchorから確定でき、再試行が可能である。
+- EnterとEscapeは単なるboolではなく、明示的な結果を返す。
 
-Domain-specific tool state, snapping, and requests stay in each domain. Only the
-outcome vocabulary is shared.
+domain固有のtool状態、snap、要求は各domainに置く。共有するのは結果を表す語彙だけである。
 
-## Undo
+## 取り消し（Undo）
 
-Ctrl+Z is the operation for undoing the last committed interval. Escape is not
-an undo shortcut.
+Ctrl+Zは最後に確定した区間を取り消す操作である。Escapeを取り消しのshortcutにはしない。
 
-## Tool switch
+## ツール切り替え
 
-Changing tools discards only transient draw-session state. It does not commit a
-preview and does not remove previously committed entities.
+toolを変更すると描画sessionの一時状態だけを破棄する。previewを確定せず、既に確定したentityも削除しない。
 
-## Pointer move
+## ポインター移動
 
-Pointer movement after anchoring produces a lightweight guide or no candidate.
-It must not execute full Core generation, classify a future commit failure, or
-publish a user-facing commit error. The guide is replaced by the current input;
-an older candidate must not remain visible as though it were current.
+anchor設定後のポインター移動は、軽量ガイドを作るか、候補なしの状態にする。完全なCore生成、将来の確定失敗の分類、ユーザー向け確定errorの通知は行わない。ガイドは現在の入力で置き換え、古い候補を現在のものとして表示し続けない。
 
-Road guide shows the input path and width envelope needed to understand the
-candidate. Wire guide shows the input route and snap marker. Domain geometry,
-support placement, junction generation, and model assembly are commit work.
-Add Lane selects `2車線から3車線への変化開始位置`, `3車線が完成する位置`, and
-`3車線を維持する終点` in that order. Pointer movement updates only the local
-position and affected-range guide. The editor converts the selected road points
-to segment-local `t`; the section plan and transition validation run only on
-Confirm. A rejected confirmation preserves all three selections.
+Roadのガイドは、候補の理解に必要な入力pathと幅の範囲を示す。Wireのガイドは入力routeとsnap markerを示す。domain幾何、support配置、junction生成、model assemblyは確定時の処理である。
 
-Bezier road handles depend on the start anchor, inherited start tangent, end
-point, and chord length. The previous pointer frame is not an input, so two
-pointer paths ending at the same point produce the same guide and commit shape.
+Add Laneでは、`2車線から3車線への変化開始位置`、`3車線が完成する位置`、`3車線を維持する終点`の順に選ぶ。ポインター移動で更新するのは局所位置と影響範囲のガイドだけである。editorは選択した道路上の点をsegment内の`t`へ変換し、section planとtransitionの検証はConfirm時だけ実行する。確定を拒否した場合は3つの選択を全て保持する。
 
-## Atomicity
+Bezier道路のhandleは、開始anchor、引き継いだ開始接線、終点、弦長から決まる。前frameのポインター位置は入力にしない。同じ終点へ至る2つのポインター経路は、同じガイド形状と確定形状になる。
 
-One committed interval is one atomic domain operation. Road commits its segment,
-nodes, corridor membership, connection, surface, and marking together. Wire
-commits its route topology, support binding, and generated wire geometry
-together. Guide and topology are not separate commit phases.
+## 原子性
 
-## Build identity
+1区間の確定は、1つのatomicなdomain操作である。Roadはsegment、node、corridor所属、connection、surface、markingを一緒に確定する。Wireはroute topology、support binding、生成したwire幾何を一緒に確定する。ガイドとtopologyを別々の確定段階にはしない。
 
-The Web bundle and WASM module embed the same Git commit and package version.
-Startup compares both values before loading the workspace or mounting the scene.
-A mismatch blocks editing and reports both identities; it is not treated as a
-domain commit failure.
+## ビルド識別情報
 
-Text controls own Enter and Escape while focused. IME composition does not send
-draw commands. Keyboard input is dispatched to exactly one active draw domain.
+Web bundleとWASM moduleには同じGit commitとpackage versionを埋め込む。起動時に両者を比較してからworkspaceを読み込み、sceneをmountする。不一致なら編集を止めて両方の識別情報を報告する。これはdomainの確定失敗には分類しない。
+
+text入力にfocusがある間、EnterとEscapeはそのcontrolが処理する。IME変換中は描画commandを送らない。keyboard入力は、activeな描画domainの1つだけへ送る。

@@ -1979,15 +1979,16 @@ bool C825_core_silent_fallback_audit_is_recorded() {
   std::string audit{};
   WIRE_TEST_EXPECT(file_text(repo_root() / "docs/wire/core_silent_fallback_audit.md", &audit),
                    "docs/wire/core_silent_fallback_audit.md is missing");
+  // Japanese labels use UTF-8 bytes independently of the MSVC execution charset.
   const std::vector<std::string> required_tokens = {
       "HorizontalNormalizedOr",
       "model_assembly.cpp",
       "span_visual_assembly.cpp",
       "detail_curve.cpp",
       "state/template/ports.cpp",
-      "Legitimate degenerate handling",
-      "Upstream inconsistency candidate",
-      "Deferred",
+      "\xe6\xad\xa3\xe5\xbd\x93\xe3\x81\xaa\xe9\x80\x80\xe5\x8c\x96\xe5\x87\xa6\xe7\x90\x86",
+      "\xe4\xb8\x8a\xe6\xb5\x81\xe3\x81\xae\xe4\xb8\x8d\xe6\x95\xb4\xe5\x90\x88\xe5\x80\x99\xe8\xa3\x9c",
+      "\xe4\xbf\x9d\xe7\x95\x99",
   };
   for (const std::string& token : required_tokens) {
     WIRE_TEST_EXPECT(contains_text(audit, token), "silent fallback audit missing token: " + token);
@@ -2102,11 +2103,12 @@ bool C829_core_policy_constants_are_classified() {
   std::string audit{};
   WIRE_TEST_EXPECT(file_text(repo_root() / "docs/wire/core_policy_constants.md", &audit),
                    "docs/wire/core_policy_constants.md is missing");
+  // Japanese labels use UTF-8 bytes independently of the MSVC execution charset.
   const std::vector<std::string> required_tokens = {
-      "Physical / numeric identity",
-      "Fixed contract",
-      "Visual policy",
-      "Tuning candidate",
+      "\xe7\x89\xa9\xe7\x90\x86\xe3\x83\xbb\xe6\x95\xb0\xe5\xad\xa6\xe4\xb8\x8a\xe3\x81\xae\xe5\xae\x9a\xe6\x95\xb0",
+      "\xe5\x9b\xba\xe5\xae\x9a\xe3\x81\x95\xe3\x82\x8c\xe3\x81\x9f\xe5\xa5\x91\xe7\xb4\x84",
+      "\xe8\xa6\x8b\xe3\x81\x9f\xe7\x9b\xae\xe3\x81\xae\xe6\x96\xb9\xe9\x87\x9d",
+      "\xe8\xaa\xbf\xe6\x95\xb4\xe5\x80\x99\xe8\xa3\x9c",
       "kNodePatchHorizontalLengthM",
       "kPatchMetersPerSegment",
       "kAvoidClearanceM",

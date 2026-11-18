@@ -1,48 +1,48 @@
-# Core Policy Constants
+# Coreの方針を表す定数
 
-T3 classifies constants that are easy to confuse with each other. This file is an audit, not a migration. Do not move or retune these constants as part of T3.
+T3は、混同しやすい定数を分類する調査である。本書は監査記録であり、定数の移行は行わない。T3の作業で定数を移動したり、値を調整したりしない。
 
-## Physical / numeric identity
+## 物理・数学上の定数
 
-| Constant | Source | Classification | Notes |
+| 定数 | 所在 | 分類 | 補足 |
 |---|---|---|---|
-| `kPi` / `kTwoPi` / `kRadiansToDegrees` | `coord_utils.hpp`, geometry/backbone sources | Physical / numeric identity | Mathematical conversion constants. Duplication can be cleaned separately, but values are not visual policy. |
-| `kLengthToleranceM`, `kLengthSquaredToleranceM2`, `kStrictLengthToleranceM` | `numeric_tolerances.hpp` | Fixed contract | Numeric comparison policy. Values are compatibility-preserving tolerances, not appearance tuning. |
-| `kInv` | variation/style random sources | Physical / numeric identity | Converts 53 random bits to a unit double. |
+| `kPi` / `kTwoPi` / `kRadiansToDegrees` | `coord_utils.hpp`、geometry/backboneのsource | 物理・数学上の定数 | 数学的な変換定数。重複は別途整理できるが、値は見た目の方針ではない。 |
+| `kLengthToleranceM`, `kLengthSquaredToleranceM2`, `kStrictLengthToleranceM` | `numeric_tolerances.hpp` | 固定された契約 | 数値比較の方針。互換性を維持するための許容誤差であり、見た目の調整値ではない。 |
+| `kInv` | variation/styleの乱数処理 | 物理・数学上の定数 | 53bitの乱数を単位区間のdoubleへ変換する。 |
 
-## Fixed contract
+## 固定された契約
 
-| Constant | Source | Classification | Notes |
+| 定数 | 所在 | 分類 | 補足 |
 |---|---|---|---|
-| `kDefaultCornerThresholdDeg` | `core_runtime_types.hpp` | Fixed contract | Default layout setting exposed through `LayoutSettings`; tune via settings, not a hidden code tweak. |
-| `kMaxCornerSideScale` | `core_runtime_types.hpp` | Fixed contract | Public layout bound. Changing it changes generated geometry policy. |
-| `kSharpCornerInteriorAngleMaxDeg` | `row_representation.cpp` | Fixed contract | Defines normal-vs-sharp representation boundary until moved to a user-facing setting. |
-| `kRegenerateChangeMask` | `state/template/update.cpp` | Fixed contract | Bitmask contract for template update policy. Not visual. |
-| `kMaxDebugRecords` | `state/template/ports.cpp` | Fixed contract | Debug storage cap. Not generation geometry policy. |
+| `kDefaultCornerThresholdDeg` | `core_runtime_types.hpp` | 固定された契約 | `LayoutSettings`で公開する既定のlayout設定。隠れたコード変更ではなく、設定から調整する。 |
+| `kMaxCornerSideScale` | `core_runtime_types.hpp` | 固定された契約 | 公開されたlayoutの上限。変更すると生成幾何の方針も変わる。 |
+| `kSharpCornerInteriorAngleMaxDeg` | `row_representation.cpp` | 固定された契約 | ユーザー向け設定へ移すまでは、通常角と鋭角の表現境界を定義する。 |
+| `kRegenerateChangeMask` | `state/template/update.cpp` | 固定された契約 | template更新方針のbitmask契約。見た目の値ではない。 |
+| `kMaxDebugRecords` | `state/template/ports.cpp` | 固定された契約 | debug storageの上限。生成幾何の値ではない。 |
 
-## Visual policy
+## 見た目の方針
 
-| Constant | Source | Classification | Notes |
+| 定数 | 所在 | 分類 | 補足 |
 |---|---|---|---|
-| `kNodePatchHorizontalLengthM` | `curve_parts.cpp` | Visual policy | NodePatch boundary length. Likely cable/category dependent later. |
-| `kNodePatchMaxSpanFraction` | `curve_parts.cpp` | Visual policy | Prevents patch boundary from consuming too much of a short span. |
-| `kPatchMetersPerSegment` | `curve_parts.cpp` | Visual policy | Tessellation density for patch sampling. |
-| `kPatchRadiansPerSegment` | `curve_parts.cpp` | Visual policy | Angular tessellation density for patch sampling. |
-| `kFallbackTangentScale` | `detail_curve.cpp` | Visual policy | Quality fallback handle scale for hard tangents. |
+| `kNodePatchHorizontalLengthM` | `curve_parts.cpp` | 見た目の方針 | NodePatchの境界長。将来はcableやcategoryに依存する可能性がある。 |
+| `kNodePatchMaxSpanFraction` | `curve_parts.cpp` | 見た目の方針 | 短いSpanの大部分がpatch境界に使われることを防ぐ。 |
+| `kPatchMetersPerSegment` | `curve_parts.cpp` | 見た目の方針 | patch samplingの距離方向の分割密度。 |
+| `kPatchRadiansPerSegment` | `curve_parts.cpp` | 見た目の方針 | patch samplingの角度方向の分割密度。 |
+| `kFallbackTangentScale` | `detail_curve.cpp` | 見た目の方針 | 扱いにくい接線に対する品質fallbackのhandle scale。 |
 
-## Tuning candidate
+## 調整候補
 
-| Constant | Source | Classification | Notes |
+| 定数 | 所在 | 分類 | 補足 |
 |---|---|---|---|
-| `kAvoidClearanceM` | `pipeline.cpp` | Tuning candidate | Route avoid detour clearance. Input/constraint policy rather than physical law. |
-| `kAutoCollapseDistanceM` | `pipeline.cpp` | Tuning candidate | Automatic near-node collapse distance. User interaction and topology policy. |
-| `kG2MinChordLengthM` | `detail_curve.cpp` | Tuning candidate | Minimum length for attempting G2-like detail continuity. |
-| `kG2EndpointOffsetRatioLimit` | `detail_curve.cpp` | Tuning candidate | Detail curve quality threshold. |
-| `kG2EndpointOffsetMetersLimit` | `detail_curve.cpp` | Tuning candidate | Detail curve quality threshold. |
-| `kCandidateAttempts` | `population.cpp` | Tuning candidate | Population search budget. It is deterministic but affects distribution quality. |
+| `kAvoidClearanceM` | `pipeline.cpp` | 調整候補 | routeの回避迂回に使うclearance。物理法則ではなく入力・制約の方針。 |
+| `kAutoCollapseDistanceM` | `pipeline.cpp` | 調整候補 | 近接nodeを自動統合する距離。ユーザー操作とtopologyの方針。 |
+| `kG2MinChordLengthM` | `detail_curve.cpp` | 調整候補 | G2相当のdetail連続性を試みる最小長。 |
+| `kG2EndpointOffsetRatioLimit` | `detail_curve.cpp` | 調整候補 | detail curveの品質閾値。 |
+| `kG2EndpointOffsetMetersLimit` | `detail_curve.cpp` | 調整候補 | detail curveの品質閾値。 |
+| `kCandidateAttempts` | `population.cpp` | 調整候補 | population探索の試行回数。決定的ではあるが、分布品質へ影響する。 |
 
-## Current decision
+## 現時点の判断
 
-- T3 does not relocate constants into config/template fields.
-- Visual policy and tuning candidates should not be changed incidentally while fixing topology, model assembly, or persistence bugs.
-- If a new constant affects visible geometry, add it to this table in the same change.
+- T3では定数をconfigやtemplate fieldへ移さない。
+- topology、model assembly、永続化のbug修正に付随して、見た目の方針や調整候補を変更しない。
+- 見える幾何へ影響する定数を追加する場合は、同じ変更でこの表へ追加する。

@@ -23,9 +23,7 @@
 - `derived_equality`単独case: 0
 - `legacy_unclassified`: 422
 
-`legacy_unclassified`は一括書換えしない。matrix観測に使うcaseは即時分類し、その他は
-production/testを触った作業単位で分類する。case総数の増加ではなく、この残件数の減少を
-進捗として扱う。
+この集計は過去のsnapshotであり、現在値や品質目標ではない。`legacy_unclassified`は一括書換えせず、重要な契約の検証に関係するcaseから実際のassertionとoracleを確認する。matrix観測に使うcaseは分類し、その他はproduction/testを触った作業単位で扱う。進捗は残件数や分類率ではなく、新たに検出・防止できる故障と明らかになった保証範囲で判断する。
 
 ## architecture条件
 

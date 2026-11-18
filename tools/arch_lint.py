@@ -299,12 +299,12 @@ def check_draw_interaction_contract(root: Path) -> list[str]:
     errors: list[str] = []
     required = {
         "docs/editor/draw_interaction.md": (
-            "## Click",
-            "## Pointer move",
+            "## クリック（Click）",
+            "## ポインター移動",
             "## Enter",
             "## Escape",
-            "## Undo",
-            "## Tool switch",
+            "## 取り消し（Undo）",
+            "## ツール切り替え",
         ),
         "web/src/actions/viewer.ts": (
             "this.draw.primaryViewportPoint",
@@ -339,10 +339,10 @@ def check_draw_interaction_contract(root: Path) -> list[str]:
             "road_path_self_intersection",
         ),
         "docs/wire/supported_operations.md": (
-            "## Normal drawing fixtures",
-            "## Requirement constraints",
-            "## Failure ownership",
-            "twelve independent model-aware routes",
+            "## 通常描画で対応する構成",
+            "## 製品要件による制約",
+            "## 失敗時の責務",
+            "modelを含む独立した12本のroute",
         ),
         "web/src/store/viewer.ts": (
             "DrawActionResult",

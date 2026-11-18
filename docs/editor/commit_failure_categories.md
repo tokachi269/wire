@@ -1,15 +1,15 @@
-# Commit failure categories
+# 確定操作の失敗分類
 
-Road and Wire report a failed explicit commit with a machine-readable category and reason code. Pointer movement and lightweight guides do not create commit failures.
+RoadとWireは、明示的な確定操作に失敗した場合、機械可読な分類と理由コードを返す。ポインター移動や軽量ガイドでは確定操作の失敗を発生させない。
 
-| Category | Meaning | User recovery |
+| 分類 | 意味 | ユーザーによる対処 |
 |---|---|---|
-| `RequirementConstraint` | A documented product rule intentionally rejects the operation. | Change the input as described by the rule. |
-| `InvalidInput` | The request is malformed, incomplete, non-finite, or references an invalid required ID. | Correct the input or select a valid target. |
-| `NotImplemented` | The request is meaningful, but the current resolver does not support that case. | Use a supported topology or wait for implementation. |
-| `StateConflict` | The request was valid when drawing began, but its referenced state is now stale. | Refresh the anchor and retry. |
-| `InternalError` | A supported path violated an internal invariant or failed unexpectedly. | Preserve the reason code and build ID for investigation. |
+| `RequirementConstraint` | 文書化された製品ルールに基づき、意図的に操作を拒否した。 | ルールに従って入力を変更する。 |
+| `InvalidInput` | 要求の形式不正、情報不足、非有限値、または必須IDの不正参照がある。 | 入力を修正するか、有効な対象を選ぶ。 |
+| `NotImplemented` | 要求には意味があるが、現在の解決処理ではそのケースに対応していない。 | 対応済みのtopologyを使うか、実装を待つ。 |
+| `StateConflict` | 描画開始時には有効だった要求の参照先が、現在は古くなっている。 | anchorを更新して再試行する。 |
+| `InternalError` | 対応済みの経路で内部不変条件に違反したか、予期しない失敗が起きた。 | 調査のため理由コードとビルドIDを保存する。 |
 
-`RequirementConstraint` is limited to rules already documented by the owning domain. Current examples are a self-intersecting Road input path and a Wire template whose `allow_midair_branch` policy is disabled. Existing Road angle limits remain `NotImplemented` unless a product requirement is separately defined.
+`RequirementConstraint`に分類できるのは、担当domainが既に文書化したルールに限る。現在の例は、Roadの入力pathの自己交差と、Wire templateで`allow_midair_branch`が無効な場合である。既存のRoad角度制限は、製品要件として別途定義しない限り`NotImplemented`のままとする。
 
-Every failed boundary result carries a non-empty `reasonCode`. Generic legacy failures use the category code until their operation-specific audit assigns a narrower code. Human-readable `error` text is diagnostic detail and is not used as UI control flow.
+境界から返す全ての失敗結果は、空でない`reasonCode`を持つ。従来の汎用エラーは、操作ごとの監査で具体的なコードが割り当てられるまで、分類自体のコードを使う。人間向けの`error`文字列は診断情報であり、UIの制御分岐には使わない。

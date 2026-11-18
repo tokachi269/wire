@@ -450,11 +450,52 @@ bool C753_authoritative_load_continues_editing_without_id_collision() {
 
 bool C754_authoritative_load_rejects_invalid_text_without_mutation() {
   city::wire::CoreState state;
-  if (!state.GenerateFromBackboneSpec(backbone_tests::line_req(state)).ok) return false;
-  std::string saved{};
-  if (!state.SerializeAuthoritative(&saved).ok) return false;
+  const auto request = backbone_tests::line_req(state);
+  const auto generated = state.GenerateFromBackboneSpec(request);
+  WIRE_TEST_EXPECT_PRESENCE(generated.ok, generated.error);
+  WIRE_TEST_EXPECT_PRESENCE(!state.view().backbone().edges.empty(), "failed-load fixture has no edge");
+  const auto edge = state.view().backbone().edges.front();
+  city::wire::PickResult pick{};
+  pick.hit_kind = city::wire::PickHitKind::kSegment;
+  pick.hit_pos_world = {6.0, 0.0, 0.0};
+  pick.has_segment_endpoints = true;
+  pick.segment_node_a_id = edge.node_a;
+  pick.segment_node_b_id = edge.node_b;
+  pick.segment_endpoint_a_world = request.path.polyline.front();
+  pick.segment_endpoint_b_world = request.path.polyline.back();
+  city::wire::ResolveBranchPickOptions options{};
+  options.selected_bundle_template_ids = {city::wire::kDefaultLowVoltageBundleTemplateId};
+  const auto resolved = state.ResolveBranchPick(pick, options);
+  WIRE_TEST_EXPECT_PRESENCE(resolved.ok, resolved.error);
+  WIRE_TEST_EXPECT_PRESENCE(!city::wire::CoreStateTestHook::pending_support_nodes(state).empty(),
+                            "failed-load fixture must contain a pending branch");
+
+  city::wire::BackboneSpec branch = backbone_tests::line_req(state);
+  branch.path.polyline = {resolved.value.position, {6.0, 8.0, 0.0}};
+  city::wire::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  branch.path.node_specs = {node};
+  const auto retry = [&](city::wire::CoreState copy, std::string* saved,
+                         city::wire::ObjectId* next_pending) {
+    if (!copy.GenerateFromBackboneSpec(branch).ok || !copy.SerializeAuthoritative(saved).ok) return false;
+    copy.ClearPendingSupportNodes();
+    auto next_pick = pick;
+    next_pick.hit_pos_world = {3.0, 0.0, 0.0};
+    const auto next = copy.ResolveBranchPick(next_pick, options);
+    if (!next.ok) return false;
+    *next_pending = next.value.resolved_node_id;
+    return true;
+  };
+  std::string saved{}, expected_retry;
+  DerivedSnapshot before{};
+  city::wire::ObjectId expected_pending{};
+  WIRE_TEST_EXPECT_PRESENCE(state.SerializeAuthoritative(&saved).ok, "failed-load fixture save failed");
+  WIRE_TEST_EXPECT_PRESENCE(snapshot_derived(state, &before), "failed-load fixture has no derived output");
+  WIRE_TEST_EXPECT_PRESENCE(retry(state, &expected_retry, &expected_pending), "baseline branch retry failed");
   city::wire::CoreState valid_probe;
-  if (!valid_probe.DeserializeAuthoritative(saved).ok) return false;
+  WIRE_TEST_EXPECT_PRESENCE(valid_probe.DeserializeAuthoritative(saved).ok, "valid archive control failed");
   const std::vector<std::string> invalid = {
       "wire_state_v4\n",
       "wire_state_v5\n",
@@ -462,8 +503,19 @@ bool C754_authoritative_load_rejects_invalid_text_without_mutation() {
       saved.substr(0, saved.find_last_of('\n', saved.size() - 2) + 1)};
   for (const std::string& text : invalid) {
     const auto loaded = state.DeserializeAuthoritative(text);
+    WIRE_TEST_EXPECT_ANCHOR(!loaded.ok, "invalid load unexpectedly succeeded");
     std::string after{};
-    if (loaded.ok || !state.SerializeAuthoritative(&after).ok || after != saved) return false;
+    WIRE_TEST_EXPECT_PRESENCE(state.SerializeAuthoritative(&after).ok, "save after rejected load failed");
+    WIRE_TEST_EXPECT_DIFFERENTIAL(after == saved, "failed load changed authoritative state or identity counters");
+    DerivedSnapshot after_derived{};
+    WIRE_TEST_EXPECT_DIFFERENTIAL(snapshot_derived(state, &after_derived) && same_derived(before, after_derived),
+                                  "failed load changed derived output");
+    std::string actual_retry;
+    city::wire::ObjectId actual_pending{};
+    WIRE_TEST_EXPECT_DIFFERENTIAL(retry(state, &actual_retry, &actual_pending),
+                                  "failed load consumed or corrupted the pending branch");
+    WIRE_TEST_EXPECT_DIFFERENTIAL(actual_retry == expected_retry && actual_pending == expected_pending,
+                                  "failed load changed branch retry or pending identity allocation");
   }
   return true;
 }
@@ -529,7 +581,7 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "authoritative save is versioned, deterministic, and changes after state edit",
                          "Invariant", false, C750_authoritative_save_is_deterministic_and_changes_after_edit);
   test_registry::AddTest(tests, "C751_authoritative_load_roundtrip_rederives_bit_exact_outputs",
-                         "authoritative load rederives bit-exact layout, curve, bounds, visual, and run ids",
+                         "repeated authoritative loads reproduce bit-exact layout, curve, bounds, visual, and run ids",
                          "Invariant", false, C751_authoritative_load_roundtrip_rederives_bit_exact_outputs);
   test_registry::AddTest(tests, "C752_authoritative_load_resave_is_byte_identical",
                          "authoritative load resaves to identical bytes", "Exact", false,

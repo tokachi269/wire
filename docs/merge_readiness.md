@@ -78,6 +78,12 @@ E. Docs stale only: `docs/viewer/operations.md` に残っていた backbone span
 | R2 | `ResolveBranchPick` の pure 化 | `ResolveBranchPick` は現在、viewer の draw bridge が次の generation に渡す pending support node を作る操作でもある。照会APIとして pure に分離するには bridge 協定変更が必要 | `ResolveBranchPick` は副作用なしの解決だけを返し、pending support node の作成/消費は別の確定操作へ移す。web bridge と clear/cancel lifecycle を同時に更新し、既存 pending lifecycle tests を通す |
 | R3 | road authored profile / reference mesh UV source がない | `Mesh`はnormal、uv0、material groupを持つが、現行UVはprocedural defaultである。Blender等で制作したgutter/highway reference meshからcross section、V、material groupを取り込む経路はまだない | reference mesh/profile asset importerを追加し、procedural default UVをauthored metadataへ置換できることを実メッシュで確認する |
 
+## 検証で残った確認事項
+
+| ID | 対象 | 観測した不足 | 次に確認すること |
+|---|---|---|---|
+| V1 | Wireの元stateから初回loadへの派生等価性 | C751は初回loadと再loadの比較であり、元の編集状態との差を見ない。full-fat保存fixtureのSpan 54で`layout.end.endpoint_node_id`が元stateの0からload後の55へ変わった。表示不具合は未確認 | generation/loadのendpoint identity ownerを確認し、実行時versionを除いた意味値の等価性を直接検証する。診断根拠は[2026-11監査記録](../domains/wire/tests/audits/2026-11.md)を参照 |
+
 既にblockerから外したもの: `MovePole`で通常/鋭角閾値を跨ぐ場合の表現再導出。
 `C813_backbone_move_pole_rederives_pair_representation`が、endpoint Port IDとrow keyを維持したまま
 fixture 1↔2、NodePatch↔jumperを切り替え、通常角へ戻せることを検証する。

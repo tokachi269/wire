@@ -39,10 +39,10 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | Case ID | Family | 分類 | 目的 | Evidence | 壊れた時に守りたいユーザ価値 |
 |---|---|---|---|---|---|
 | C750 | Behavior | Invariant | authoritative save は version 付きで決定的かつ編集を反映する | `legacy_unclassified` | 保存結果の非決定性と編集の取りこぼしを防ぐ |
-| C751 | Behavior | Invariant | authoritative load は派生出力をbit一致で再導出する | `legacy_unclassified` | cacheを保存せず同じ表示と形状を復元する |
+| C751 | Behavior | Invariant | 初回loadと再loadの派生出力がbit一致する | `presence` `differential` | loadを繰り返した際のlayout・curve・bounds・visual・run IDの再現性を検証する。元の編集stateから初回loadへの完全等価性はV1保留 |
 | C752 | Behavior | Symptom | load後の再saveは元byteと一致する | `legacy_unclassified` | 保存と再読込の反復でproject fileを変質させない |
 | C753 | Behavior | Symptom | load後もID衝突なく編集を継続できる | `legacy_unclassified` | 読込後の編集で既存objectを上書きしない |
-| C754 | Behavior | Boundary | 不正loadは本stateを変更しない | `legacy_unclassified` | 壊れたfileの部分適用を防ぐ |
+| C754 | Behavior | Boundary | 不正loadは正本・派生出力・保留branchとその再試行結果を変更しない | `presence` `anchor` `differential` | 保存byteだけでは見えないcache破損、pending消費、identity採番の変化を防ぐ |
 | C762 | Behavior | Boundary | ModelDescriptorからassembly partへstable socketを値コピーする | `legacy_unclassified` | transient descriptorへのpointer保持やscene geometryからのsocket再推測を防ぐ |
 | C763 | Behavior | Boundary | assembly登録はvalidation後だけ反映し、wire socketとendpoint mount socketを含めsave/load対象になる | `legacy_unclassified` | adapterが正本mapを直書きする、不完全assemblyを部分反映する、またはmount追加で旧saveを読めなくする回帰を防ぐ |
 | C01 | Behavior | Symptom | ID生成の単調増加 | `legacy_unclassified` | 永続ID衝突防止 |

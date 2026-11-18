@@ -29,6 +29,17 @@ def word_present(text: str, symbol: str) -> bool:
     return symbol in text
 
 
+def parse_guard_tokens(value: str) -> tuple[set[str], str | None]:
+    # 検査式はidentifierに限らない。取りこぼすと宣言した担当箇所の固定が黙って無効になる。
+    if value.strip() in ("", "-"):
+        return set(), None
+    tokens = set(re.findall(r"`([^`]+)`", value))
+    leftover = re.sub(r"`[^`]*`", " ", value).strip()
+    if leftover:
+        return tokens, leftover
+    return tokens, None
+
+
 def parse_aspect_list(value: str) -> set[str]:
     return set(re.findall(r"`([a-z0-9_]+)`", value))
 
@@ -54,15 +65,25 @@ def parse_backbone_authority_guards(text: str) -> tuple[list[dict[str, object]],
         if not (owner.startswith("domains/wire/src/") or owner.startswith("domains/wire/include/")):
             errors.append(f"domains/wire/tests/spec_ledger.md: authority guard owner must be wire production code: {owner}")
             continue
-        guards.append(
-            {
-                "name": name,
-                "owner": owner,
-                "required": parse_aspect_list(cells[2]),
-                "unique": parse_aspect_list(cells[3]),
-                "forbidden": parse_aspect_list(cells[4]) if len(cells) >= 5 else set(),
-            }
-        )
+        columns = {
+            "required": cells[2],
+            "unique": cells[3],
+            "forbidden": cells[4] if len(cells) >= 5 else "",
+        }
+        parsed: dict[str, set[str]] = {}
+        malformed = False
+        for column, cell in columns.items():
+            tokens, leftover = parse_guard_tokens(cell)
+            if leftover is not None:
+                errors.append(
+                    f"domains/wire/tests/spec_ledger.md: authority guard {name} has an unquoted "
+                    f"{column} token: {leftover}"
+                )
+                malformed = True
+            parsed[column] = tokens
+        if malformed:
+            continue
+        guards.append({"name": name, "owner": owner} | parsed)
     return guards, errors
 
 

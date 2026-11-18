@@ -8,6 +8,10 @@ from pathlib import Path
 import arch_lint
 
 
+def nl_join(lines: tuple[str, ...]) -> str:
+    return chr(10).join(lines)
+
+
 class RepositoryArchitectureChecksTest(unittest.TestCase):
     def write(self, root: Path, relative: str, content: str) -> None:
         path = root / relative
@@ -100,6 +104,38 @@ class RepositoryArchitectureChecksTest(unittest.TestCase):
                 for error in errors
             )
         )
+
+    def test_authority_guard_keeps_non_identifier_expression_tokens(self) -> None:
+        ledger = nl_join((
+            "## Backbone正本guardの検査範囲",
+            "| Guard | Owner | Required | Unique | Forbidden |",
+            "|---|---|---|---|---|",
+            "| decision_owner | `domains/wire/src/owner.cpp` | - | `value.level = Resolve(x)` | - |",
+        ))
+        guards, parse_errors = arch_lint.parse_backbone_authority_guards(ledger)
+        self.assertEqual([], parse_errors)
+        self.assertEqual({"value.level = Resolve(x)"}, guards[0]["unique"])
+        errors = arch_lint.check_authority_guard_owners(
+            guards,
+            {
+                "domains/wire/src/owner.cpp": "value.level = Resolve(x)",
+                "domains/wire/src/duplicate.cpp": "value.level = Resolve(x)",
+            },
+        )
+        self.assertTrue(
+            any("appears outside owner" in error and "duplicate.cpp" in error for error in errors)
+        )
+
+    def test_authority_guard_unquoted_token_is_rejected(self) -> None:
+        ledger = nl_join((
+            "## Backbone正本guardの検査範囲",
+            "| Guard | Owner | Required | Unique | Forbidden |",
+            "|---|---|---|---|---|",
+            "| decision_owner | `domains/wire/src/owner.cpp` | - | value.level = Resolve(x) | - |",
+        ))
+        guards, parse_errors = arch_lint.parse_backbone_authority_guards(ledger)
+        self.assertEqual([], guards)
+        self.assertTrue(any("unquoted unique token" in error for error in parse_errors))
 
     def test_bindings_required_tokens_are_each_connected(self) -> None:
         required_tokens = (

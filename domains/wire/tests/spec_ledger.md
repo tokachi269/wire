@@ -22,16 +22,17 @@
 
 ## Backbone正本guardの検査範囲
 
-matrix / aspectは外部仕様と観測点を表す。authority guardは、各観点を決めるproduction式が分散しないことを固定する。`Required owner tokens`は担当箇所に必須、`Unique production tokens`は`domains/wire/src`と`domains/wire/include`内で担当箇所にだけ存在できる。
+matrix / aspectは外部仕様と観測点を表す。authority guardは、各観点を決めるproduction式が分散しないことを固定する。`Required owner tokens`は担当箇所に必須、`Unique production tokens`は`domains/wire/src`と`domains/wire/include`内で担当箇所にだけ存在できる。`Unique production tokens`には実装式を書く。関数名はcall siteが正当に名前を書くため固定できない。tokenはbacktickで囲む。囲み漏れはlintが拒否する。
 
 `Forbidden owner tokens`は担当箇所内で使ってはいけない分岐語彙を示す。
 
 | Authority | Owner | Required担当箇所tokens | Unique production tokens | Forbidden担当箇所tokens |
 |---|---|---|---|---|
 | row_support_placement | `domains/wire/src/generation/backbone/pipeline.cpp` | `enable_branch_down_offset` `branch_endpoint_offset_m * static_cast<double>(support_level)` `endpoint->branch_down_offset_m` | `branch_endpoint_offset_m * static_cast<double>(support_level)` | `BundleKind::kHighVoltage` `row_height_offsets` `stable_row_slot_plan` `kRowHeightSeparationM` |
-| layout_endpoint_lowering_projection | `domains/wire/include/city/wire/span_layout_types.hpp` | `ApplyEndpointLayoutRule` `dst.branch_down_offset_m = rule.branch_down_offset_m` | `ApplyEndpointLayoutRule` |  |
+| layout_endpoint_lowering_projection | `domains/wire/include/city/wire/span_layout_types.hpp` | `ApplyEndpointLayoutRule` `dst.branch_down_offset_m = rule.branch_down_offset_m` | `dst.branch_down_offset_m = rule.branch_down_offset_m` |  |
 | sharp_representation_threshold | `domains/wire/src/generation/backbone/row_representation.cpp` | `kSharpCornerInteriorAngleMaxDeg` | `kSharpCornerInteriorAngleMaxDeg` |  |
 | sharp_jumper_derivation | `domains/wire/src/generation/backbone/curve_parts.cpp` | `endpoint.jumper_peer_port_id` `VisualCurvePartKind::kJumper` |  | `Length(peer->point - endpoint.point)` |
+| saved_row_support_assignment | `domains/wire/src/state/backbone.cpp` | `binding.support_level = support_level` `binding.support_group_id = support_group_id` | `binding.support_level =` `binding.support_group_id =` |  |
 
 | Case ID | Family | 分類 | 目的 | Evidence | 壊れた時に守りたいユーザ価値 |
 |---|---|---|---|---|---|

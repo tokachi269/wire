@@ -34,6 +34,8 @@ matrix / aspectは外部仕様と観測点を表す。authority guardは、各�
 | sharp_jumper_derivation | `domains/wire/src/generation/backbone/curve_parts.cpp` | `endpoint.jumper_peer_port_id` `VisualCurvePartKind::kJumper` |  | `Length(peer->point - endpoint.point)` |
 | saved_row_support_assignment | `domains/wire/src/state/backbone.cpp` | `binding.support_level = support_level` `binding.support_group_id = support_group_id` | `binding.support_level =` `binding.support_group_id =` |  |
 
+Evidence列は実行時に記録したassertion種別を書く。宣言した種別は実際に記録されていなければならず、記録されない種別は書かない。未分類は`legacy_unclassified`単独とし、`source_guard`はSourceGuard familyの登録と一致させる。この照合はtest runnerが全件実行後に行う。
+
 | Case ID | Family | 分類 | 目的 | Evidence | 壊れた時に守りたいユーザ価値 |
 |---|---|---|---|---|---|
 | C750 | Behavior | Invariant | authoritative saveはバージョン付きで決定的かつ編集を反映する | `legacy_unclassified` | 保存結果の非決定性と編集の取りこぼしを防ぐ |
@@ -246,11 +248,11 @@ matrix / aspectは外部仕様と観測点を表す。authority guardは、各�
 | C473 | Behavior | Boundary | 隣接spanは各edge endpoint Portを参照する | `legacy_unclassified` | Spanがpeer edgeのPortを共有する回帰防止 |
 | C474 | SourceGuard | Boundary | backbone port resolutionはambiguous bindingをrejectする | `source_guard` | 曖昧なresolutionを恣意的に選ぶ回帰防止 |
 | C475 | SourceGuard | Boundary | backbone port resolutionはexisting layoutを読まない | `source_guard` | port resolutionがlayout/materialization/位置推測に戻る回帰防止 |
-| C476 | Behavior | Invariant | backbone branch rowはkindなしでPortの論理anchorとHV bundle水平中心を維持し、resolved support levelで最終endpointだけを分離する | `oracle` `anchor` | branch相当入力で物理rowが潰れる、Port Zを別decisionで動かす、またはbundle中心を横へ動かす回帰防止 |
+| C476 | Behavior | Invariant | backbone branch rowはkindなしでPortの論理anchorとHV bundle水平中心を維持し、resolved support levelで最終endpointだけを分離する | `legacy_unclassified` | branch相当入力で物理rowが潰れる、Port Zを別decisionで動かす、またはbundle中心を横へ動かす回帰防止 |
 | C477 | SourceGuard | Boundary | backbone cross rowはkindなしでcontinuityから導出される | `source_guard` | cross相当入力で未接続openが残る、またはcross enumが再発する回帰防止 |
 | C478 | Behavior | Invariant | backbone row height separationはdeterministic | `legacy_unclassified` | row height separationがunordered contextや生成順で揺れる回帰防止 |
 | C479 | SourceGuard | Boundary | backbone row height separationはpairsを変えない | `source_guard` | port placement policyがpair/open/row source決定へ混ざる回帰防止 |
-| C480 | Behavior | Invariant | backbone context rowは既存Portを動かさずcontext側port/spanを再materializeせず、branch-down無効bundleの新rowへsupport offsetを混入しない | `oracle` `anchor` | context-only rowを新規port/spanとして生成する、既存Portをreflowする、またはflag無効bundleを高さ分離する回帰防止 |
+| C480 | Behavior | Invariant | backbone context rowは既存Portを動かさずcontext側port/spanを再materializeせず、branch-down無効bundleの新rowへsupport offsetを混入しない | `legacy_unclassified` | context-only rowを新規port/spanとして生成する、既存Portをreflowする、またはflag無効bundleを高さ分離する回帰防止 |
 | C481 | Behavior | Boundary | backbone pass-through modeは限定範囲で受ける | `legacy_unclassified` | node modeを無制限に受けてpair/row決定へ混ぜる回帰防止 |
 | C482 | Behavior | Boundary | backbone pass-throughはexplicit intentを保存する | `legacy_unclassified` | pass-through指定が保存されず後段推測へ戻る回帰防止 |
 | C483 | SourceGuard | Boundary | backbone pass-through ambiguous targetはrejectする | `source_guard` | 幾何や順序で曖昧なtarget rowを選ぶ回帰防止 |
@@ -267,7 +269,7 @@ matrix / aspectは外部仕様と観測点を表す。authority guardは、各�
 | C494 | Behavior | Boundary | backbone lowering v1 drawは再判断しない | `legacy_unclassified` | drawがlowering intentを新規判断する回帰防止 |
 | C495 | SourceGuard | Boundary | backbone lowering v1はexisting spanを読まない | `source_guard` | loweringがv1/recalc/materializationへ戻る回帰防止 |
 | C496 | Behavior | Invariant | backbone junction v1はdeterministic | `legacy_unclassified` | existing junction出力がtraversal/orderで揺れる回帰防止 |
-| C497 | Behavior | Invariant | backbone context rowはsupport-level constraintに使い未存在portをmaterializeしない | `oracle` `anchor` | context-only rowを新規port/spanとして生成する、またはflag無効bundleのPort anchorを動かす回帰防止 |
+| C497 | Behavior | Invariant | backbone context rowはsupport-level constraintに使い未存在portをmaterializeしない | `legacy_unclassified` | context-only rowを新規port/spanとして生成する、またはflag無効bundleのPort anchorを動かす回帰防止 |
 | C498 | Behavior | Boundary | backbone saved graphはtopology authorityのまま | `legacy_unclassified` | topologyをspans/layout/seedから復元する構造へ戻る回帰防止 |
 | C499 | Behavior | Boundary | backbone context linkはsave targetではない | `legacy_unclassified` | context linkが`save_backbone_edge`対象になりnew linkと混ざる回帰防止 |
 | C500 | SourceGuard | Boundary | backbone context linkはsaved edge refを要求する | `source_guard` | context linkをnode pair / 幾何 / span/layoutから推測して保存する回帰防止 |
@@ -539,7 +541,7 @@ matrix / aspectは外部仕様と観測点を表す。authority guardは、各�
 | C787 | SourceGuard | Boundary | BundleTemplate categoryと既定配置はCore/WASM payloadを正本にし、JSはlayerから推測しない | `source_guard` | webがSpanLayer→category対応表やband matchingを複製し、Core/WASMの分類とdriftする回帰を防ぐ |
 | C788 | SourceGuard | Boundary | belt radial fitとendpoint socket placementはmaterializationが所有する | `source_guard` | curve_partsやrendererがsocket/mesh幾何を再解釈する、またはbelt半径をmesh実体からCoreで読む回帰を防ぐ |
 | C791 | Behavior | Boundary | 大きめの既存sceneへrouteを1本追加してもfixture pipelineは操作単位でだけ走る | `legacy_unclassified` | scene規模に比例してplan構築・materialization・fallbackが再発する回帰をwall-clockに依存せず検出する |
-| C792 | Behavior | Invariant | incrementalで新しい独立rowを追加しても既存Port anchorは動かさず、新rowはband anchorを保ったまま次のsupport level/groupを使い、そのresolved offsetをendpointへ適用する | `oracle` `anchor` | Port高さのstable-slot再決定、既存row reflow、support levelとendpoint loweringの分裂を防ぐ |
+| C792 | Behavior | Invariant | incrementalで新しい独立rowを追加しても既存Port anchorは動かさず、新rowはband anchorを保ったまま次のsupport level/groupを使い、そのresolved offsetをendpointへ適用する | `anchor` | Port高さのstable-slot再決定、既存row reflow、support levelとendpoint loweringの分裂を防ぐ |
 | C795 | Behavior | Invariant | model-aware HV pair promotionはPort/Span識別情報を維持し、正本placement anchorから同一pair frameでPort/row fixture/endpoint fixture/curveを導出してNodePatch laneをcollapseさせない | `legacy_unclassified` | モデルありpromotionでfixtureとPortのframe分裂、3相collapse、shared Port再導入を防ぐ |
 | C796 | Behavior | Invariant | explicit placement heightはincremental row reflowで変更されず、mixed bundleとsame-template duplicateを混同しない | `legacy_unclassified` | explicit heightをrow spacingやstable slotでband既定値へずらす、same-template duplicateが混ざる、pair promotionで既存row高さが変わる回帰を防ぐ |
 | C797 | Behavior | Boundary | row continuity tableはrouteとpair promotionの各lane継続を保存する | `legacy_unclassified` | NodePatchの存在をcurve層がbundle/port/位置epsから推測し続ける回帰を防ぐ |
@@ -567,11 +569,11 @@ matrix / aspectは外部仕様と観測点を表す。authority guardは、各�
 | C844 | Behavior | Boundary | promotion frame更新はexact PortBindingを必須識別情報とし、missing / ambiguous / Port relation不成立を正本不変のまま拒否する | `legacy_unclassified` | missing exact bindingをno-op successとしてpromotionを継続する回帰を防ぐ |
 | C845 | Behavior | Invariant | permutable 3-lane rowの識別情報 / complete reverse双方で、PortBinding laneが参照するPortとplacement_band_idは同じphysical placementを表す | `legacy_unclassified` | mirror時にlogical span laneのbandをphysical Portへ保存してfixture・curve placementを分裂させる回帰を防ぐ |
 | C846 | SourceGuard | Boundary | save_graphのPortBinding保存はplacement_band_idをlogical span laneではなく、選択したPortと同じphysical trow laneから読む | `source_guard` | behavior fixtureが未到達のmirror形状でspan.lane参照が再導入される回帰を防ぐ |
-| C847 | Behavior | Invariant | 同一physical edge上のHV/LVが別peer edgeへ接続する独立edge-bundle continuity componentはauthoritative検証、save/load、derived rebuildを維持する | `differential` `presence` | edge-bundle識別情報をload前にphysical edgeへcollapseし、合法な保存状態をambiguousとして読めなくする回帰を防ぐ |
-| C848 | Behavior | Invariant | scoped regenerateは対象edge-bundle componentを先に選び、無関係componentをauthority・出力の判断入力にしない | `differential` `anchor` | 同じphysical edge上の別bundle continuityがHV/LV個別regenerateを失敗または変質させる回帰を防ぐ |
-| C849 | Behavior | Boundary | 同一edge-bundle component内で3方向へ分岐するsaved continuityはload時に明示失敗し、既存正本を変更しない | `anchor` | component識別情報修正をambiguityのsilent skipやfallbackへ変える回帰を防ぐ |
-| C850 | Behavior | Invariant | 同じfixed BundleTemplateを使う独立Bundle placementは、各Bundle識別情報とedge-bundle continuity componentをscopeに3→4更新し、単独実行・配置順反転と同じ意味結果を得る | `differential` `anchor` | テンプレート全体を一括regenerateして独立componentを混同する、または無関係componentを判断入力にする回帰を防ぐ |
-| C851 | Behavior | Invariant | 同じfixed BundleTemplateを使う独立Bundle placementの4→3更新は、各componentのlane 3だけをretireし、残存PortBinding・SpanBinding・continuityをcomponent内に保つ | `presence` `anchor` | component横断でSpan/Portを削除する、または残存relationを別Bundleへ結ぶ回帰を防ぐ |
+| C847 | Behavior | Invariant | 同一physical edge上のHV/LVが別peer edgeへ接続する独立edge-bundle continuity componentはauthoritative検証、save/load、derived rebuildを維持する | `anchor` | edge-bundle識別情報をload前にphysical edgeへcollapseし、合法な保存状態をambiguousとして読めなくする回帰を防ぐ |
+| C848 | Behavior | Invariant | scoped regenerateは対象edge-bundle componentを先に選び、無関係componentをauthority・出力の判断入力にしない | `legacy_unclassified` | 同じphysical edge上の別bundle continuityがHV/LV個別regenerateを失敗または変質させる回帰を防ぐ |
+| C849 | Behavior | Boundary | 同一edge-bundle component内で3方向へ分岐するsaved continuityはload時に明示失敗し、既存正本を変更しない | `legacy_unclassified` | component識別情報修正をambiguityのsilent skipやfallbackへ変える回帰を防ぐ |
+| C850 | Behavior | Invariant | 同じfixed BundleTemplateを使う独立Bundle placementは、各Bundle識別情報とedge-bundle continuity componentをscopeに3→4更新し、単独実行・配置順反転と同じ意味結果を得る | `legacy_unclassified` | テンプレート全体を一括regenerateして独立componentを混同する、または無関係componentを判断入力にする回帰を防ぐ |
+| C851 | Behavior | Invariant | 同じfixed BundleTemplateを使う独立Bundle placementの4→3更新は、各componentのlane 3だけをretireし、残存PortBinding・SpanBinding・continuityをcomponent内に保つ | `legacy_unclassified` | component横断でSpan/Portを削除する、または残存relationを別Bundleへ結ぶ回帰を防ぐ |
 | C866 | Behavior | Invariant | range Bundleの個別count更新はexact Bundle識別情報とlane prefix識別情報を保ち、無関係Bundleを判断入力・変更対象にせず、save/load後もbindingを再構築できる | `presence` `anchor` `differential` | テンプレート共有Bundleを巻き込む、存続laneを置換する、退役lane relationを残す回帰を防ぐ |
 | C867 | Behavior | FailureAtomicity | range Bundleの退役laneにuser Attachmentまたはmanual Portがあるcount減少はauthority不変で拒否する | `presence` `differential` | user-owned relationを暗黙削除する、または失敗後に一部だけretireする回帰を防ぐ |
 | C868 | Behavior | Boundary | fixed BundleTemplateの個別Bundle count変更とrange外count要求はauthority不変で拒否する | `presence` `differential` | count policyを個別overrideとして迂回する回帰を防ぐ |
@@ -581,13 +583,13 @@ matrix / aspectは外部仕様と観測点を表す。authority guardは、各�
 | C872 | Behavior | Boundary | exact Bundle scopeの必須SpanBindingが不足する退役要求はfail-closedでauthorityを変更しない | `presence` `differential` | incomplete binding scopeをsilent skipしてBundleだけ削除する回帰を防ぐ |
 | C873 | Behavior | Invariant | exact anchor Bundleから別placement識別情報を追加し、全physical edge membershipとlane continuityを同型に保つ一方、Bundle/Port/Span識別情報を共有せずpeerを変更しない。save/load後も維持し、追加Bundleの退役でanchor topologyへ戻る | `anchor` `presence` `differential` | テンプレート一致だけの再利用、Port/Span共有、部分component生成、stale binding/cacheを防ぐ |
 | C874 | Behavior | Invariant | branch/cross/sharpのexact anchor relationをcategoryや通常pair候補から再判断せず新Bundleへ同型複製し、Jumper/NodePatchは既存derived経路から生成する | `anchor` `oracle` `presence` | branch除外、cross component混同、sharp continuityの再判定、parallel derived実装を防ぐ |
-| C875 | Behavior | FailureAtomicity | placement_key重複とexact source Bundle mappingを持たないsource-edge dependent anchorは状態変更前に拒否してauthorityを変更しない | `differential` `anchor` | 識別情報衝突とsource dependency推測、部分状態変更を防ぐ |
+| C875 | Behavior | FailureAtomicity | placement_key重複とexact source Bundle mappingを持たないsource-edge dependent anchorは状態変更前に拒否してauthorityを変更しない | `differential` `presence` | 識別情報衝突とsource dependency推測、部分状態変更を防ぐ |
 | C876 | Behavior | Boundary | anchorの必須SpanBindingまたはmulti-lane row continuityが部分欠落したBundle instance追加はfail-closedでauthorityを変更しない | `differential` `presence` | incomplete scopeやlane relationをsilent skipし、欠落したmembershipを複製成功扱いする回帰を防ぐ |
 | C877 | Behavior | Invariant | exact currentとdesired concrete Bundle集合が同一ならsemantic状態を変えず、同keyのplacementとkRange count変更ではBundle ObjectIdと存続lane識別情報を維持する | `anchor` `differential` | no-opでID/counterを進める、survivorをretire/addへ置換する、count変更で存続laneを置換する回帰を防ぐ |
-| C878 | Behavior | Invariant | current/desiredのkey差分をouter trial内でadd/retireし、A+B、Aへの縮小、A+BからA+Cへの置換、2 -> 4 -> 2を通じて存続Bundle識別情報とexact membershipを維持する | `anchor` `presence` `differential` | partial commit、scope外retire、survivor識別情報置換、stale relationを防ぐ |
+| C878 | Behavior | Invariant | current/desiredのkey差分をouter trial内でadd/retireし、A+B、Aへの縮小、A+BからA+Cへの置換、2 -> 4 -> 2を通じて存続Bundle識別情報とexact membershipを維持する | `anchor` `presence` | partial commit、scope外retire、survivor識別情報置換、stale relationを防ぐ |
 | C879 | Behavior | Invariant | 3点以上およびbranch/cross/sharpのsaved relationを既存Add/Retireだけでreconcileし、desired/current入力順を反転しても同じkey別semantic topologyを得てsave/load後も維持する | `metamorphic` `anchor` `differential` | 入力vector順を新しいBundle ordering authorityにする、branch membershipやpairingを再判断する回帰を防ぐ |
 | C880 | Behavior | FailureAtomicity | survive placement/countとaddの後にlate retireがuser authorityで失敗する場合、およびsource-edge addがunsupportedとなる場合もouterトランザクション全体を元authorityへ戻す | `differential` `presence` | nested generic操作の途中commitを本状態へ漏らす回帰を防ぐ |
-| C881 | Behavior | Boundary | duplicate/nonzero key、template/layer/count/spacing、current-scope外anchor、anchor lane topology不一致を状態変更前またはouter trial内で拒否し、scope外の同値keyは別correlationとして扱う | `differential` `anchor` | category/template/geometryによるscopeやanchor推測、placement keyのglobal識別情報化、silent normalization、暗黙テンプレートmigrationを防ぐ |
+| C881 | Behavior | Boundary | duplicate/nonzero key、template/layer/count/spacing、current-scope外anchor、anchor lane topology不一致を状態変更前またはouter trial内で拒否し、scope外の同値keyは別correlationとして扱う | `differential` `presence` | category/template/geometryによるscopeやanchor推測、placement keyのglobal識別情報化、silent normalization、暗黙テンプレートmigrationを防ぐ |
 | C882 | Behavior | Invariant | Generate/Applyトランザクションはその場のresolved resultとcommitするplacement識別情報を厳密対応させる一方、loadはstructurally validなdescriptorとsaved exact concrete scopeを復元しcurrent resolverを再実行しない | `anchor` `differential` `presence` | session-only recipe、トランザクション時の非resolver識別情報、resolver変更によるload不能、load時reroll、scope識別情報欠落を防ぐ |
 | C883 | Behavior | Differential | explicit Applyは同じplacement keyのBundle識別情報を維持してdensity/height/lateralを更新し、失敗時はdescriptorとconcrete authorityを同時に元へ戻す | `anchor` `differential` `presence` | Apply途中のpartial commit、survivor置換、descriptorとconcrete topologyのずれを防ぐ |
 | C884 | Behavior | Boundary | 1 -> 0はBundleと物理topologyを退役し、live exact sourceのない0 -> 1は状態不変のままunsupportedにする | `anchor` `differential` | v1対象外のdormant skeleton/replayを残す、または削除済みmembershipを推測して復活させる回帰を防ぐ |
@@ -600,15 +602,15 @@ matrix / aspectは外部仕様と観測点を表す。authority guardは、各�
 | C853 | Behavior | Invariant | Portはband/explicit placementの論理anchorを保持し、support level/groupから一度resolveしたbranch downだけが物理endpointへ適用され、save/loadとscoped placement regenerateでも同じ意味結果を保つ | `differential` `oracle` `anchor` | row offset、stable slot、support level loweringが独立にPort/endpoint Zを決めて相互補償する回帰を防ぐ |
 | C854 | SourceGuard | Boundary | productionのrow height経路にrow-height offset、stable slot、bundle update時の保存offsetを残さず、row ordering角度はatan2直後にdegreeへ正規化する | `source_guard` | 別経路のno-op故障を他経路が補償する構造とradian/degree混在が再導入される回帰を防ぐ |
 | C855 | Behavior | Invariant | 非Autoのmain spanも単一のsag_factorをspan全体へ1回適用し、`chord length * ratio`の物理sag量と独立式`4u(1-u)`のparabolic profileを使う | `oracle` `presence` | continuity policyによるprofile分岐、sag ratio二重加算、長さ・pass・剛性による隠れ倍率を防ぐ |
-| C856 | Behavior | Invariant | 同じroute seedとruleはBundle数・placement_key・height・lateralを完全同一に解決し、代表的な別seedは異なる結果になる | `differential` `anchor` | redrawでrerollする、またはseedを無視して常に同じ配置になる回帰を防ぐ |
-| C857 | Behavior | Invariant | route bundle variationは全Bundleを指定sideとrule envelope内に保ち、横位置にもvariationを持つ。resolverはBundle間のclearance policyを推測しない | `oracle` | 高さだけの縦積み、左右反転、または入力にない配置制約の再導入を防ぐ |
-| C858 | Behavior | Boundary | Communication/Opticalだけのruleは指定テンプレートだけを通常Bundle・Port・Span・saved bindingとして生成する | `presence` `anchor` | category推測でHV/LVを追加する、またはvisual-only線へ戻る回帰を防ぐ |
-| C860 | Behavior | Invariant | acute cornerを通るrandomized multi-bundle routeはbackbone不変条件を満たし、save/load後もconcrete placementを維持する | `presence` `differential` | load時rerollとlane/continuity twist再発を防ぐ |
-| C861 | Behavior | Invariant | incremental extensionは同じresolved placementとsource Bundleを使い、既存spanとconnection出力を保つ | `presence` `anchor` | extension時rerollと既存visual update scope欠落を防ぐ |
-| C862 | Behavior | Invariant | 固定seed群でLV・Communication・OpticalのBundle構成または配置が実際に変わり、Communicationは1 conductor Bundleを複数生成する一方、HV 3相配置は不変 | `oracle` `differential` | 見た目の束をtopology laneで増やす、またはHVまでrandom化する回帰を防ぐ |
-| C863 | Behavior | Invariant | 近いCommunication/Opticalは1本のsupport rowを共有しper-Bundle row fixtureを残さず、visual member数を増やしてもSpan・Port・endpoint fixture・support数は増えない | `presence` `oracle` `differential` | Bundleごとの横棒・belt乱造、visual memberによるattachment増殖、direct fixtureの浮遊を防ぐ |
-| C864 | Behavior | Invariant | 非HV logical centerlineは通常のsag curveを維持する。3-member visual bundleは線径由来のcompactな三角断面を全長とendpointで保ち、NodePatchを含む接続曲線にも同じ固定断面を引き継ぐ。非HV sagだけが明示spread内で変化する | `anchor` `oracle` `differential` | random wander/phase/twistの復活、endpointで一点へ収束する扇形、接続部だけcenter 1本へ戻る回帰、横一列、member衝突・離脱、HV形状変化を防ぐ |
-| C865 | Behavior | Invariant | 保存済みplacementからのmember断面はderived rebuildとsave/loadで同一で、Opticalも同じlogical-span packingから3 member・support・helixを生成し、member外周を共有helix containment内へ保つ | `differential` `presence` `oracle` | rebuild/load時reroll、Communication/Opticalの断面処理分裂、helix外へのmember離脱を防ぐ |
+| C856 | Behavior | Invariant | 同じroute seedとruleはBundle数・placement_key・height・lateralを完全同一に解決し、代表的な別seedは異なる結果になる | `legacy_unclassified` | redrawでrerollする、またはseedを無視して常に同じ配置になる回帰を防ぐ |
+| C857 | Behavior | Invariant | route bundle variationは全Bundleを指定sideとrule envelope内に保ち、横位置にもvariationを持つ。resolverはBundle間のclearance policyを推測しない | `legacy_unclassified` | 高さだけの縦積み、左右反転、または入力にない配置制約の再導入を防ぐ |
+| C858 | Behavior | Boundary | Communication/Opticalだけのruleは指定テンプレートだけを通常Bundle・Port・Span・saved bindingとして生成する | `legacy_unclassified` | category推測でHV/LVを追加する、またはvisual-only線へ戻る回帰を防ぐ |
+| C860 | Behavior | Invariant | acute cornerを通るrandomized multi-bundle routeはbackbone不変条件を満たし、save/load後もconcrete placementを維持する | `anchor` | load時rerollとlane/continuity twist再発を防ぐ |
+| C861 | Behavior | Invariant | incremental extensionは同じresolved placementとsource Bundleを使い、既存spanとconnection出力を保つ | `anchor` | extension時rerollと既存visual update scope欠落を防ぐ |
+| C862 | Behavior | Invariant | 固定seed群でLV・Communication・OpticalのBundle構成または配置が実際に変わり、Communicationは1 conductor Bundleを複数生成する一方、HV 3相配置は不変 | `legacy_unclassified` | 見た目の束をtopology laneで増やす、またはHVまでrandom化する回帰を防ぐ |
+| C863 | Behavior | Invariant | 近いCommunication/Opticalは1本のsupport rowを共有しper-Bundle row fixtureを残さず、visual member数を増やしてもSpan・Port・endpoint fixture・support数は増えない | `legacy_unclassified` | Bundleごとの横棒・belt乱造、visual memberによるattachment増殖、direct fixtureの浮遊を防ぐ |
+| C864 | Behavior | Invariant | 非HV logical centerlineは通常のsag curveを維持する。3-member visual bundleは線径由来のcompactな三角断面を全長とendpointで保ち、NodePatchを含む接続曲線にも同じ固定断面を引き継ぐ。非HV sagだけが明示spread内で変化する | `legacy_unclassified` | random wander/phase/twistの復活、endpointで一点へ収束する扇形、接続部だけcenter 1本へ戻る回帰、横一列、member衝突・離脱、HV形状変化を防ぐ |
+| C865 | Behavior | Invariant | 保存済みplacementからのmember断面はderived rebuildとsave/loadで同一で、Opticalも同じlogical-span packingから3 member・support・helixを生成し、member外周を共有helix containment内へ保つ | `legacy_unclassified` | rebuild/load時reroll、Communication/Opticalの断面処理分裂、helix外へのmember離脱を防ぐ |
 | C895 | Behavior | Differential | Webで公開するDensity 5xとHeight/Lateral spreadの全域はresolverが通常specへ解決でき、既存variationへatomic Applyすると本数および各spread由来のconcrete placementが変化する | `differential` `presence` `anchor` | 選択可能なcontrolがunsupportedになり、またはdescriptorだけ変わってconcrete placementへ反映されない回帰を防ぐ |
 | C896 | Behavior | Invariant | Coreはsag済みVisualCurvePartとhelix axis/resolved radiusだけを決定し、asset catalogを知らずにrebuild/save-loadで同じcurve意味論を維持する | `oracle` `differential` `presence` | asset presentation decisionのCore逆流、helix幾何semanticの欠落、GLB導入によるlogical topology変化を防ぐ |
 | C836 | Behavior | Invariant | 操作×状態表の各確定セルを実際の正本状態から分類し、各Observation tokenへその操作結果の独立した証拠を結び付けて実行する | `oracle` `presence` `anchor` | テストケース内の別cellやObserve自体の検証条件で未検証cellをcoverage済みにする、または接続状態だけ正しく派生frameが分裂する回帰を防ぐ |

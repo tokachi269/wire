@@ -42,6 +42,13 @@ int main(int argc, char** argv) {
       all_passed = false;
     }
   }
+  if (filter.empty() && all_passed) {
+    std::string evidence_error;
+    if (!test_registry::ValidateRecordedEvidence(tests, &evidence_error)) {
+      std::cerr << "spec ledger evidence mismatch: " << evidence_error << "\n";
+      all_passed = false;
+    }
+  }
   if (filter.empty()) {
     const std::vector<std::string> derived_only =
         test_registry::TestCaseIdsWithOnlyDerivedEquality();

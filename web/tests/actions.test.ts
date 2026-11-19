@@ -1001,6 +1001,8 @@ describe("viewport tool routing", () => {
     const store = new ViewerStore();
     store.update((snapshot) => ({
       ...snapshot,
+      selectedRouteVariation: { ...descriptor, variationId: "previous-route" },
+      selectedRouteVariationControls: { density: 2, heightSpread: 0.5, lateralSpread: 0.5 },
       spans: [{ id: "205", portAId: "109", portBId: "110", bundleId: "501" }]
     }));
     const actions = new ViewerActions(actionBridge({
@@ -1018,38 +1020,44 @@ describe("viewport tool routing", () => {
     });
   });
 
-  it("keeps one persisted baseline while realtime controls change", () => {
+  it.each(["same span", "sibling span", "cleared selection", "pole selection"])(
+    "keeps one persisted baseline across control changes and %s reselection", (reselection) => {
     const persistedRules = [{
       bundleTemplateId: 104, minInstances: 2, maxInstances: 4,
       conductorCount: 1, heightMin: 5, heightMax: 7,
       lateralAbsMin: 0.2, lateralAbsMax: 0.6
     }];
-    const appliedRules = [{
-      ...persistedRules[0], heightMin: 5.5, heightMax: 6.5
-    }];
     const descriptor = {
       ok: true, error: "", found: true, variationId: "907", routeSeed: 777,
       preferredSideSign: -1, poleTypeId: 1, rules: persistedRules,
-      instances: [{ placementKey: 71, bundleId: "801" }]
+      instances: [
+        { placementKey: 71, bundleId: "801" },
+        { placementKey: 72, bundleId: "802" }
+      ]
     };
-    let applied = false;
+    let appliedRules = persistedRules;
     const applyBackboneBundleVariation = vi.fn((
       _variationId: string,
-      _rules: typeof persistedRules
+      rules: typeof persistedRules
     ) => {
-      applied = true;
+      appliedRules = rules;
       return { ok: true, error: "" };
     });
     const store = new ViewerStore();
     store.update((snapshot) => ({
       ...snapshot,
-      spans: [{ id: "207", portAId: "113", portBId: "114", bundleId: "801" }]
+      spans: [
+        { id: "207", portAId: "113", portBId: "114", bundleId: "801" },
+        { id: "208", portAId: "115", portBId: "116", bundleId: "802" }
+      ]
     }));
     const actions = new ViewerActions(actionBridge({
-      backboneBundleVariationForBundle: () => descriptor,
-      backboneBundleVariation: () => applied
-        ? { ...descriptor, rules: appliedRules }
-        : descriptor,
+      backboneBundleVariationForBundle: () => ({ ...descriptor, rules: appliedRules }),
+      backboneBundleVariation: () => ({ ...descriptor, rules: appliedRules }),
+      scene: () => ({
+        parts: [], models: [], poles: [], ports: [], supportNodes: [], backboneEdges: [],
+        spans: current(store).spans
+      }),
       applyBackboneBundleVariation
     }), store);
 
@@ -1061,6 +1069,26 @@ describe("viewport tool routing", () => {
     });
     expect(current(store).selectedRouteVariation?.rules).toEqual(persistedRules);
     expect(current(store).selectedRouteVariationControls.heightSpread).toBe(0.5);
+
+    if (reselection === "cleared selection") actions.clearSelection();
+    if (reselection === "pole selection") actions.select("pole", "101");
+    const spanId = reselection === "sibling span" ? "208" : "207";
+    actions.select("span", spanId);
+    expect(current(store).selection).toEqual({ kind: "span", id: spanId });
+    actions.setRouteVariation("lateralSpread", 0.5);
+
+    expect(appliedRules[0]).toMatchObject({
+      heightMin: 5.5, heightMax: 6.5
+    });
+    expect(appliedRules[0].lateralAbsMin).toBeCloseTo(0.3, 12);
+    expect(appliedRules[0].lateralAbsMax).toBeCloseTo(0.5, 12);
+    expect(current(store).selectedRouteVariation?.rules).toEqual(persistedRules);
+    expect(current(store).selectedRouteVariationControls).toEqual({
+      density: 1, heightSpread: 0.5, lateralSpread: 0.5
+    });
+
+    actions.setRouteVariation("heightSpread", 1);
+    expect(appliedRules[0]).toMatchObject({ heightMin: 5, heightMax: 7 });
   });
 
   it("applies route controls to the persisted variation while the same route is active", () => {

@@ -28,7 +28,10 @@ export class SelectionActions {
       ...current,
       selection: { kind, id },
       selectedRouteVariation: kind === "span"
-        ? selectedVariation
+        ? selectedVariation !== null && current.selectedRouteVariation !== null &&
+          selectedVariation.variationId === current.selectedRouteVariation.variationId
+          ? { ...selectedVariation, rules: current.selectedRouteVariation.rules }
+          : selectedVariation
         : current.selectedRouteVariation,
       selectedRouteVariationControls: kind !== "span" || selectedVariation === null ||
         selectedVariation.variationId === current.selectedRouteVariation?.variationId

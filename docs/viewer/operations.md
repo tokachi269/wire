@@ -174,3 +174,8 @@ web viewerはバージョン付きworkspace documentをbrowser local storageへ�
 parts、catalog、timing、log等の再取得可能な値は保存しない。
 
 Store変更は250ms debounceで保存し、page unloadでは同期flushする。`Reset`は起動時のfactory CoreStateと既定Web設定へ戻し、その状態でキャッシュを置換する。手動Save/LoadはCore archiveの入出力として残し、Load後の状態は次のキャッシュflushに含める。
+
+### Smoke確認
+
+- Saveで状態textを保存し、別操作後にLoadすると保存時のpole / span / curve表示へ戻る。
+- バージョン不一致またはtruncatedな状態textをLoadするとerrorが表示され、現在の表示と状態は変わらない。

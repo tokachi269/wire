@@ -19,8 +19,7 @@
 4. [検証方針](docs/testing.md)
 5. [エージェントによる開発支援の共通手順](docs/engineering/agent_harness.md)
 6. [実行コマンド](docs/command_cheatsheet.md)
-7. [Wireの文書一覧](docs/wire/README.md)
-8. [Roadの文書一覧](docs/road/README.md)
+7. [docsの索引](docs/README.md)
 
 ## Quick check
 

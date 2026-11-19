@@ -15,4 +15,6 @@
 | エージェント手順 | [engineering/agent_harness.md](engineering/agent_harness.md) | 開発支援の共通手順 |
 | 実行コマンド | [command_cheatsheet.md](command_cheatsheet.md) | 実績あるローカル実行コマンド |
 
+完了した調査の記録は[history/](history/README.md)にある。正本と混ぜない。
+
 各ドメインの文書一覧は入口文書の参照先に従う。索引をここと各ディレクトリで二重に持たない。

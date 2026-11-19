@@ -1977,8 +1977,8 @@ bool C787_web_bundle_template_category_has_no_layer_fallback() {
 
 bool C825_core_silent_fallback_audit_is_recorded() {
   std::string audit{};
-  WIRE_TEST_EXPECT(file_text(repo_root() / "docs/wire/core_silent_fallback_audit.md", &audit),
-                   "docs/wire/core_silent_fallback_audit.md is missing");
+  WIRE_TEST_EXPECT(file_text(repo_root() / "docs/history/core_silent_fallback_audit.md", &audit),
+                   "docs/history/core_silent_fallback_audit.md is missing");
   // Japanese labels use UTF-8 bytes independently of the MSVC execution charset.
   const std::vector<std::string> required_tokens = {
       "HorizontalNormalizedOr",
@@ -2076,7 +2076,7 @@ bool C828_core_state_mutable_accessors_are_audited() {
   std::string audit{};
   WIRE_TEST_EXPECT(file_text(repo_root() / "domains/wire/include/city/wire/core_state.hpp", &core_state),
                    "core_state.hpp is missing");
-  WIRE_TEST_EXPECT(file_text(repo_root() / "docs/wire/core_state_mutable_access_audit.md", &audit),
+  WIRE_TEST_EXPECT(file_text(repo_root() / "docs/history/core_state_mutable_access_audit.md", &audit),
                    "core state mutable accessor audit is missing");
   const std::vector<std::string> removed_tokens = {
       "connection_index_access",
@@ -2101,8 +2101,8 @@ bool C828_core_state_mutable_accessors_are_audited() {
 
 bool C829_core_policy_constants_are_classified() {
   std::string audit{};
-  WIRE_TEST_EXPECT(file_text(repo_root() / "docs/wire/core_policy_constants.md", &audit),
-                   "docs/wire/core_policy_constants.md is missing");
+  WIRE_TEST_EXPECT(file_text(repo_root() / "docs/history/core_policy_constants.md", &audit),
+                   "docs/history/core_policy_constants.md is missing");
   // Japanese labels use UTF-8 bytes independently of the MSVC execution charset.
   const std::vector<std::string> required_tokens = {
       "\xe7\x89\xa9\xe7\x90\x86\xe3\x83\xbb\xe6\x95\xb0\xe5\xad\xa6\xe4\xb8\x8a\xe3\x81\xae\xe5\xae\x9a\xe6\x95\xb0",

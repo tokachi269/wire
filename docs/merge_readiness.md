@@ -2,7 +2,7 @@
 
 この文書は、mainへmergeする前のゲートを示す。現在の保留、blocker、検証で見つかった不足は[status.md](status.md)にある。
 
-## 必須check
+## 必須の確認
 
 - Coreの既定テストが通る
 - backbone acceptanceが通る

@@ -67,13 +67,13 @@ canonical successful backbone scenario
 
 安定したsource検査はStructural evidenceであり、behaviorテストを代替しない。
 
-## Portable catalogの実例
+## 移植できる実例
 
 共通behavioral probe catalogの例として、incremental-vs-full differentialは`C741_scoped_visual_curve_rebuild_matches_full_rebuild`、load失敗時の原子性は`C754_authoritative_load_rejects_invalid_text_without_mutation`、独立component orderingは`C780_backbone_incremental_duplicate_values_are_order_independent_by_placement_key`を参照できる。
 
 これらは実例であり、共通方針の再定義ではない。
 
-## Legacy test
+## 旧テスト
 
 Legacyテストの期待値をBackbone acceptanceの正本にしない。契約を抽出し、現行authority/derived出力に対して維持、書き直し、実装familyとともに退役、現行designと競合するため削除、のいずれかに分類する。Unsupported-operationテストでは状態不変も検証する。
 

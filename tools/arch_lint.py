@@ -261,10 +261,10 @@ def check_architecture_documents(root: Path) -> list[str]:
             "## 契約を中心とした検証",
             "## 保護手段の優先順位",
             "## Oracleの独立性",
-            "## 振る舞いprobe catalog",
+            "## 振る舞いprobeの一覧",
             "### 選び方",
-            "## Regression lifecycle",
-            "## Testの退役",
+            "## 不具合修正の手順",
+            "## テストの退役",
         ),
         "docs/wire/architecture.md": (
             "# Wire architecture",

@@ -24,6 +24,6 @@
 | 描画session | 参照するanchorやバージョンが古くなった | `StateConflict` | anchorを更新して再試行する |
 | backbone/model assembly | 保存binding、row、fixture、生成endpointが不変条件に違反した | `InternalError` | 対応済み経路の不具合として扱う |
 
-## sessionの動作
+## 描画sessionの動作
 
 最初のClickでanchorを受理する。次のClickで1区間を確定し、解決済みの終点を継続anchorとして保持する。Enterは表示中のガイドを確定してsessionを終了する。Escapeは一時状態だけを破棄する。toolの切り替えでは、それまでの一時sessionを終了する。全ての主操作は明示的な結果を返し、描画可能なクリックを無視せず明示的に結果を返す。

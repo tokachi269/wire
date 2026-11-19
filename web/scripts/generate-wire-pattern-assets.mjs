@@ -8,7 +8,7 @@ import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 const webRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outputRoot = path.join(webRoot, "src", "assets", "wire-patterns");
 
-if (globalThis.FileReader === undefined) {
+if (typeof globalThis.FileReader === "undefined") {
   globalThis.FileReader = class {
     result = null;
     error = null;

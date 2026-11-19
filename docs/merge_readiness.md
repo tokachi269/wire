@@ -56,7 +56,7 @@ pipelineの入力検証系`unsupported`(不正入力の恒久拒否)はこの表
 | R1. Road section not expressible | 断面外端の`BoundaryProfile` | viewer到達可(preset作成時) | `boundaries.size() + 1 == strips.size()` | 境界をgapごと(`strips.size() + 1`個)へ変え、外端も実境界にする。合成ID 1 / 999が消え、`merge_boundary_policies`のindexとjunctionの外端判定が連動する。歩道のない側のL字溝と、`road/architecture.md`の「歩道がない場合」の張り出しがこれで解ける |
 | R2. Road connection mapping | 断面styleが異なる道路同士の接続 | viewer到達可 | `AddSegmentConnectedTo`等 | `connection_geometry_from_gates`が`surface_styles`完全一致を要求している。片側だけ溝がある、左右で溝が違う、溝つきと縁石をつなぐ、が通らない。gate間のsurface対応をID/roleで解決してから解除する |
 
-## 決定済みの制限
+## 正本を別に持つ制限
 
 | 操作 | 制限 | 正本 |
 |---|---|---|

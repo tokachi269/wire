@@ -153,6 +153,8 @@ layout ruleはoverride解決を消費し、socketはendpoint source / resolved s
 
 `UpdateLayoutSettings`はlayout settingsを試行用の状態に入れ、row continuityで接続されたedge_bundle componentとbundle instanceごとのscopeを統一regenerateする。scope復元はsaved row continuity componentを正本とし、保存済みedgeのroute/orderは判定入力にしない。
 
+拡張条件は操作ごとに異なる。`UpdateCableTemplate`はnon-backbone spanを含むdecision更新、`UpdateBundleTemplate`はfresh生成が拒否する新policyまたはnon-backbone spanを含むscope、`UpdatePoleTypeDefinition`はmanual port退役拒否の緩和、endpoint socket / branch-down overrideは対象範囲をspan-local以外へ広げる場合、`UpdateLayoutSettings`はlayout settingsが新しい生成入力を持つ場合に、それぞれ別シナリオとして設計してから広げる。
+
 ## 実行時coverage契約
 
 `C` / `O` / `K` / `U`の各セルは、テストケースIDや手書きタグではなく、テスト実行中に構築された`CoreState`から状態を分類してcoverageへ記録する。matrixに行または列を追加し、対応する実状態を構築しなければcoreテスト全実行を失敗させる。

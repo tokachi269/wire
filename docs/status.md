@@ -2,6 +2,13 @@
 
 merge前のゲートは[merge_readiness.md](merge_readiness.md)にある。この文書は作業が進むたびに更新する状況ボードであり、設計上の意味の正本ではない。各行の正本は参照先の設計文書とする。
 
+## PR #9の外部解析待ち
+
+持ち込みレビューレポートでは、[PR #9](https://github.com/tokachi269/wire/pull/9)の`d1a99e2e`に対するSonarCloud Quality Gateは、Security / ReliabilityがともにCで失敗したと報告されている。この環境では外部チェックの最新結果を再取得しておらず、修正後の再解析も未実施である。merge前に次を確認する。
+
+- `javascript:S3403`: Node.jsでの`FileReader`存在確認を`typeof`形式へ変更した。この環境でも、生成する12個のGLBが変更前後でSHA-256一致となった。再解析で指摘が解消するかを確認する。
+- `pythonsecurity:S8707`の4件: レポートでは、`tools/backbone_semantics.py`の入力・出力と、`tools/architecture_observation.py`のmanifest・出力へのCLI引数が対象となっている。信頼されたローカルCLIとして使う前提では誤検出候補だが、別の自動化から未検証の引数を渡す場合の権限境界は未確認である。CMakeはソースツリー外への出力を使うため、一律のリポジトリ内制限は追加していない。呼出し側の権限モデルを確認した上で、SonarCloud上の判定を確定する。
+
 ## 残blocker
 
 | ID | 操作 | 現状 | 解除条件 |

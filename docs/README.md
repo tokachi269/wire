@@ -8,6 +8,7 @@
 | 検証 | [testing.md](testing.md) | 契約中心の検証方針、evidence、lintとの分担 |
 | 命名 | [architecture_naming.md](architecture_naming.md) | ドメインをまたぐ動詞の定義 |
 | merge判断 | [merge_readiness.md](merge_readiness.md) | mainへmergeする前のゲート |
+| 現在の状況 | [status.md](status.md) | 保留、blocker、検証で見つかった不足 |
 | Wire | [wire/architecture.md](wire/architecture.md) | Wireの設計文書への入口 |
 | Road | [road/architecture.md](road/architecture.md) | Roadの設計文書への入口 |
 | Viewer | [viewer/operations.md](viewer/operations.md) | viewer操作契約とlayout |

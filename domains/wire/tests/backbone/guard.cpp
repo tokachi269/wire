@@ -679,7 +679,7 @@ bool C736_unsupported_hold_docs_do_not_restore_supported_backbone_updates() {
   std::string viewer{};
   std::string readiness{};
   if (!file_text(repo_root() / "docs" / "viewer" / "operations.md", &viewer) ||
-      !file_text(repo_root() / "docs" / "merge_readiness.md", &readiness)) {
+      !file_text(repo_root() / "docs" / "status.md", &readiness)) {
     return false;
   }
   const std::vector<std::string> stale_viewer_phrases{
@@ -2226,8 +2226,8 @@ bool C831_normalization_fallback_calls_are_classified_in_source() {
 
 bool C832_resolve_branch_pick_pure_split_is_merge_readiness_hold() {
   std::string readiness{};
-  WIRE_TEST_EXPECT(file_text(repo_root() / "docs/merge_readiness.md", &readiness),
-                   "docs/merge_readiness.md is missing");
+  WIRE_TEST_EXPECT(file_text(repo_root() / "docs/status.md", &readiness),
+                   "docs/status.md is missing");
   const std::vector<std::string> required_tokens = {
       "R2",
       "ResolveBranchPick",

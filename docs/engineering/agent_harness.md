@@ -22,7 +22,7 @@ Decision
 
 1. Invalid状態を構造的に表現不能にできるか。
 2. Type、module、capabilityで防げるか。
-3. 安定した境界をarchitecture lintで保護できるか。
+3. 安定した境界をarch lintで保護できるか。
 4. Behavioral Primary proofが必要か。
 5. 意味のあるmetamorphic relationがあるか。
 6. Differential proofに使える等価経路があるか。
@@ -61,7 +61,7 @@ fail-first
 
 ## Architecture-significant change workflow
 
-authoritative/persisted状態、public/Core API、操作意味論、Decision担当箇所、module/layer dependency、cross-layer/cross-domain dependency、fallback/special path、persistenceの変更はarchitecture-significantとして扱う。
+authoritative/persisted状態、public/Core API、操作意味論、decision owner、module/layer dependency、cross-layer/cross-domain dependency、fallback/special path、persistenceの変更はarchitecture-significantとして扱う。
 
 expected scopeより実変更範囲が広がった場合も途中からこのworkflowへ切り替える。全ての小bugや局所変更へ機械的に適用しない。
 
@@ -127,7 +127,7 @@ Tokenやpathはreview candidateを示せるだけで、これらの意味を単�
 - Inward: 今回architecture上で実際に何を変えたか。ExpectedとActualの差を説明できるか。
 - Forward: 次の変更を不必要に難しくするauthority、dependency、special pathを増やしていないか。完全な自動判定は主張しない。
 
-Architecture observationのDSM、Reflexion Model、Architecture Delta、co-change、hotspotはreview evidenceであり、数値自体を失敗thresholdにしない。自動失敗は既存architecture lintなどが客観的に判定できる契約violationに限る。
+Architecture observationのDSM、Reflexion Model、Architecture Delta、co-change、hotspotはreview evidenceであり、数値自体を失敗thresholdにしない。自動失敗は既存arch lintなどが客観的に判定できる契約violationに限る。
 
 強いmechanismへ吸収された、他sensorと同じ情報しか出さない、有用なsignalがない、maintenance costがreview価値を上回るsensorは退役または統合を評価する。sensor数を品質目標にしない。
 
@@ -148,7 +148,7 @@ Architecture observationのDSM、Reflexion Model、Architecture Delta、co-chang
 作業を終える前に、次の内容を証拠で確認する。全件テストの成功だけでは完了と判断しない。
 
 - 要求されたbehavior
-- Architecture契約とDecision担当箇所
+- Architecture契約とdecision owner
 - Focused Primary proof
 - 関連するstructural check
 - 説明不能な補償がないこと
@@ -218,7 +218,7 @@ architecture-significantな場合は、このテンプレートに前述のExpec
 - 状態layer、識別情報、ownership、dependency、トランザクションを定義する`docs/architecture.md`
 - 契約中心の検証方針を定義する`docs/testing.md`
 - ドメインが初めて現れる時点でのドメインarchitecture文書
-- architecture manifestとgeneric architecture lint engine
+- architecture manifestとgeneric arch lint engine
 - 代表的なEnd-to-end path 1件
 - 重要契約のfocused Primary proof
 - formatter、lint、build、テストcommand

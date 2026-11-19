@@ -1,4 +1,4 @@
-# 移植可能なarchitecture lint
+# 移植可能なarch lint
 
 `architecture_lint.py`は、リポジトリに依存せずソースの層と境界を検査するエンジンである。次の設定を持つmanifestを受け取る。
 

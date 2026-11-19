@@ -77,7 +77,7 @@ IDと参照の妥当性は`ValidateAuthoritativeGraph`が、断面と線が成�
 | AddSegmentBetween | 検証 | 両端nodeならsupported | node/segment distanceを同じplanで解決 | 同じsource segmentの2点はunsupported | 両segment distanceを同じplanでsplitしてsupported |
 | EditSegmentShape | 検証 | supported | node位置を変えずshapeだけ変更 | DistanceRef規則で再評価 | owner-local markingを追従 |
 | MoveNode | 検証 | endpoint nodeを移動 | 接続全segmentを再導出 | DistanceRef規則で再評価 | owner-local markingを追従 |
-| DeleteSegment | 検証 | 選択したRoadSegment 1件だけを削除 | corridor分断は決定論的に処理 | 対象segmentの所有元だけを除去 | 対象segmentのmarkingを除去 |
+| DeleteSegment | 検証 | 選択したRoadSegment 1件だけを削除 | corridor分断は決定論的に処理 | 対象segmentだけが参照するtransitionを除去。共有transitionは維持 | 対象segmentのmarkingを除去 |
 | Viewer delete road | 1 segment pick | `DeleteSegment` | hoverしたRoadSegment全体を1クリックで削除 | hoverとclickは同じ明示segment IDを使う | splitやrange境界を作らない |
 | Add/EditRoadLayoutTemplate | supported | supported | supported | supported | supported |
 | AddLane | 検証 | corridor距離でsupported | taperは1 segment内だけsupported。完成区間は操作方向のcorridor終端までsegment境界を跨いでsupported | 1 segment 1 transition。同一区間の競合は具体的な検証 | supported |

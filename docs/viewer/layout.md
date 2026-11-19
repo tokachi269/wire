@@ -62,7 +62,7 @@
 
 - スライダのdrag policyはoperations.mdの更新クラス列に従う。
   kRedraw/kReshape/kRepositionは操作中も反映する。更新頻度は制限する、regenerate級・構造差分はrelease-onlyか無効化。
-- kReshapeの生反映では`preferred_visible_span_ids`を必ず渡す(既存`UpdateCableTemplate`機構)。
+- kReshapeの操作中に反映では`preferred_visible_span_ids`を必ず渡す(既存`UpdateCableTemplate`機構)。
 - 明示Applyボタンはregenerate級・構造差分にのみ置く。
 - 操作中フラグはstore側に持つ(`interaction`)。previewとcommitは同じcore APIを呼び、
   ログ/undoはcommitにだけ紐づける。coreにtransient/preview概念を追加しない。

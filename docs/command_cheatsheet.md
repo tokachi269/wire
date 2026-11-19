@@ -29,7 +29,7 @@ build-vs18-viewer-fetch\viewer\Debug\wire_viewer.exe
 - 通常のbuild/test経路では`Ninja`は不要。
 - 最初に`Developer Command Prompt`または`Developer PowerShell for VS`を開いた場合、`vcvars64.bat`は不要。
 - 通常のPowerShellを使う場合は、初期化した同じshell内でbuildと実行を行うか、`cmd.exe /c`で囲む。
-- `wire_core_tests`のbuild時にはarchitecture lintとtest-family lint targetも実行される。
+- `wire_core_tests`のbuild時にはarch lintとtest-family lint targetも実行される。
 
 ## lint
 
@@ -46,7 +46,7 @@ git diff --check
 
 `graph`のdefault scopeはproduction sourceである。`--scope tests`または`--scope tools`で別scopeを確認できる。DSM、co-change、hotspotの数値はreview sensorでありquality gateではない。
 
-Reflexionのdivergence判定は既存architecture lintを再利用する。
+Reflexionのdivergence判定は既存arch lintを再利用する。
 
 ```cmd
 python tools\architecture_observation.py graph --format markdown

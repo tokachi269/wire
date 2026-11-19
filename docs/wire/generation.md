@@ -141,7 +141,7 @@ post-edit regenerateと通常生成のcommitは全段階が成功したときだ
 
 preflightを増やしたことを理由に本状態直接変更へ戻すことは禁止する。
 
-`GenerateFromBackboneSpec`は状態のコピーのisolated trialで`prepare`、`check`、`build`を実行し、成功時だけstorageをmove commitする。`GenerationTiming.state_copy_ms`はcopyコストを記録し、66 pole級populated状態に対するcopy gateはgeneration totalの20%以内とする。
+`GenerateFromBackboneSpec`は状態をコピーしたisolated trialで`prepare`、`check`、`build`を実行し、成功時だけstorageをmove commitする。`GenerationTiming.state_copy_ms`はcopyコストを記録し、66 pole級populated状態に対するcopy gateはgeneration totalの20%以内とする。
 
 統一regenerateは編集差分から影響scopeを解決し、保存済み入力からscopeのpipeline graphを組み直し、既存pipelineを部分再実行してbindingをreconcileする。既存bindingは再利用し、増えたものは生成し、消えたものは退役する。
 
@@ -167,7 +167,7 @@ post-edit regenerateでは、全段階が成功した後にだけ本状態へ反
 
 ## Dependency boundary
 
-private generationの担当箇所は`domains/wire/src/generation/backbone`であり、source layerと禁止dependencyは[`tools/arch_manifest.json`](../../tools/arch_manifest.json)および既存architecture lintが検査する。
+private generationの担当箇所は`domains/wire/src/generation/backbone`であり、source layerと禁止dependencyは[`tools/arch_manifest.json`](../../tools/arch_manifest.json)および既存arch lintが検査する。
 
 CMake target graphや別のlayer taxonomyをこの文書のauthorityにしない。
 

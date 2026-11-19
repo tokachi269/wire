@@ -14,19 +14,19 @@
 
 | 更新クラス | drag policy |
 |---|---|
-| UI / camera | client内で生反映 |
-| `kRedraw` | 生反映、約30 Hz |
-| `kReshape` | 生反映、約30 Hz。`UpdateCableTemplate`は`preferred_visible_span_ids`を渡す |
-| `kReposition` | 生反映、約15 Hz。release時に最終値を再送 |
+| UI / camera | client内で操作中に反映 |
+| `kRedraw` | 操作中に反映、約30 Hz |
+| `kReshape` | 操作中に反映、約30 Hz。`UpdateCableTemplate`は`preferred_visible_span_ids`を渡す |
+| `kReposition` | 操作中に反映、約15 Hz。release時に最終値を再送 |
 | `kRegenerate` / unsupported | drag不可。release時だけcommit |
 
 ## 主要 UI
 
 | UI項目 | 呼ぶAPI / action | control | 更新クラス | drag policy | 判定 | 理由 | 優先度 |
 |---|---|---|---|---|---|---|---|
-| Left/Right Panel / Workspace Width | web layout store | toggle / slider | UI | 生反映 | 直して移植 | desktopのunified/window modeは持たず、左右panelの表示と幅だけを管理する | P1 |
-| Camera FOV | renderer camera action | slider | camera | 生反映 | そのまま | renderer所有でcore非依存 | P1 |
-| Ground Grid | renderer store | toggle | UI | 生反映 | そのまま | world幾何を変えずGridHelperの表示だけ切り替える | P1 |
+| Left/Right Panel / Workspace Width | web layout store | toggle / slider | UI | 操作中に反映 | 直して移植 | desktopのunified/window modeは持たず、左右panelの表示と幅だけを管理する | P1 |
+| Camera FOV | renderer camera action | slider | camera | 操作中に反映 | そのまま | renderer所有でcore非依存 | P1 |
+| Ground Grid | renderer store | toggle | UI | 操作中に反映 | そのまま | world幾何を変えずGridHelperの表示だけ切り替える | P1 |
 | Reset Workspace | workspaceキャッシュaction | button | Core + UI | commit | 直して移植 | factory CoreStateと既定UIへ戻し、同じ内容でキャッシュを置換する | P1 |
 | Walk Speed / Mouse Sensitivity / Start-Stop Walk | なし | slider / button | desktop入力 | - | 捨てる | webはOrbitControlsのorbit/pan/zoomを採用しwalk modeは非対象 | P2 |
 | Clear Selection | selection action | button | UI | 即時 | そのまま | storeの選択だけを消す | P1 |
@@ -37,14 +37,14 @@
 
 | UI項目 | 呼ぶAPI / action | control | 更新クラス | drag policy | 判定 | 理由 | 優先度 |
 |---|---|---|---|---|---|---|---|
-| Enable DrawPath Pick | draw store | toggle | UI | 生反映 | 直して移植 | W3ではDraw Path toolの有効状態として扱う | P1 |
-| Show Backbone Overlay | renderer store | toggle | `kRedraw`相当 | 生反映 | そのまま | store内の派生出力表示切替だけ | P1 |
-| Draw branch pick | scene raycast / `ResolveBranchPick` | scene pick | UI | 生反映 | 直して移植 | sceneが公開hit kind/idを渡し、coreがbranch接続点を解決する。JSで近傍topologyを推測しない | P1 |
-| Draw Plane Z | draw store | number | UI | 生反映 | そのまま | ray-plane交差だけに使う | P1 |
+| Enable DrawPath Pick | draw store | toggle | UI | 操作中に反映 | 直して移植 | W3ではDraw Path toolの有効状態として扱う | P1 |
+| Show Backbone Overlay | renderer store | toggle | `kRedraw`相当 | 操作中に反映 | そのまま | store内の派生出力表示切替だけ | P1 |
+| Draw branch pick | scene raycast / `ResolveBranchPick` | scene pick | UI | 操作中に反映 | 直して移植 | sceneが公開hit kind/idを渡し、coreがbranch接続点を解決する。JSで近傍topologyを推測しない | P1 |
+| Draw Plane Z | draw store | number | UI | 操作中に反映 | そのまま | ray-plane交差だけに使う | P1 |
 | Path Interval | `GenerateFromBackboneSpec` | number | `kRegenerate` | release commit | そのまま | generation入力 | P1 |
 | Clicked Points Only | `GenerateFromBackboneSpec` | toggle | `kRegenerate` | release commit | そのまま | `interval_m`の有無へ変換する | P1 |
-| Show Preview | renderer store | toggle | `kRedraw`相当 | 生反映 | そのまま | JSは点列を表示するだけでwire幾何を補完しない | P1 |
-| Keep Path After Generate | draw store | toggle | UI | 生反映 | そのまま | action成功後の入力点列保持だけ | P1 |
+| Show Preview | renderer store | toggle | `kRedraw`相当 | 操作中に反映 | そのまま | JSは点列を表示するだけでwire幾何を補完しない | P1 |
+| Keep Path After Generate | draw store | toggle | UI | 操作中に反映 | そのまま | action成功後の入力点列保持だけ | P1 |
 | Path PoleType | generation action入力 | select | `kRegenerate` | release commit | そのまま | 明示テンプレートidを渡す | P1 |
 | Bundle placement / Count / Height / Offset / Spread | `BackboneSpec::bundles` | ordered records | `kRegenerate` | release commit | 直して移植 | Height/Offsetはpole-local絶対値。全category共通。同じBundleTemplateを複数配置でき、行右上の小さい`＋`は配置recordを直後へ複製する。JSでSpan topologyを作らない | P1 |
 | Direction Mode / Flip Direction | generation action入力 | select / button | `kRegenerate` | release commit | そのまま | `BackboneSpec`の明示入力 | P1 |
@@ -64,7 +64,7 @@
 | Apply Layout | `UpdateLayoutSettings` | button | `kRegenerate` | commit | 直して移植 | form commit actionとする。unsupportedを隠さない | P1 |
 | Max Tilt | generation入力 / `ApplyPoleTilt` | number | `kReposition` | 約15 Hz | 直して移植 | 新規Draw Pathは`BackboneSpec.pole_placement`、既存pole編集は独立action | P1 |
 | Apply Tilt To Selected Poles | `ApplyPoleTilt(selected ids)` | button | `kReposition` | commit | そのまま | 選択対象を明示する | P1 |
-| Select Poles / Midair / Spans | selection filter store | toggle | UI | 生反映 | そのまま | core状態変更なし | P1 |
+| Select Poles / Midair / Spans | selection filter store | toggle | UI | 操作中に反映 | そのまま | core状態変更なし | P1 |
 | Apply Tilt To All Poles | `ApplyPoleTilt(all pole ids)` | button | `kReposition` | commit | 直して移植 | 全件対象をactionが明示収集する。Draw Pathの後処理にはしない | P1 |
 | Reset All Span Reference Lengths | `ResetAllSpanReferenceLengths` | button | `kReshape` | commit | そのまま | 独立した明示操作 | P1 |
 
@@ -115,7 +115,7 @@
 |---|---|---|---|---|---|---|---|
 | Enable Insulators | `UpdateVisualSettings` | toggle | `kRedraw` | 約30 Hz | そのまま | visualキャッシュの決定済み値だけを表示する | P1 |
 | Support Center Threshold / Arm Extra / Insulator Radius-Length | `UpdateVisualSettings` | number | `kRedraw` | 約30 Hz | そのまま | core visual出力を再取得する | P1 |
-| Solid Support Render | renderer store | toggle | `kRedraw` | 生反映 | そのまま | backend表示方式だけ | P1 |
+| Solid Support Render | renderer store | toggle | `kRedraw` | 操作中に反映 | そのまま | backend表示方式だけ | P1 |
 | Apply Visual Cache Settings | `UpdateVisualSettings` | button | `kRedraw` | commit | 直して移植 | webでは各controlのpreview/commitに分解する | P1 |
 | Clear Pole Orientation Override | `ClearPoleOrientationOverride` | button | `kReposition` | commit | そのまま | 独立操作、error表示必須 | P1 |
 | Clear Span Socket Override A/B | `ClearSpanEndpointSocketOverride` | button | `kRegenerate` | commit | そのまま | backbone spanでも統一regenerateで反映する。errorはcore結果を表示する | P1 |

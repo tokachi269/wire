@@ -81,7 +81,7 @@ desiredはexplicit placementで、keyはscope内一意、layerはテンプレー
 
 ### persisted Bundle variation Apply
 
-route bundle variationのDecision担当箇所はWire generation入力resolverである。入力は人間が記述したrandom bundle rule、route seed、preferred side、`PoleTypeDefinition` / `BundleTemplate`定義で、出力はconcreteな`BackboneBundleSpec` entriesである。
+route bundle variationのdecision ownerはWire generation入力resolverである。入力は人間が記述したrandom bundle rule、route seed、preferred side、`PoleTypeDefinition` / `BundleTemplate`定義で、出力はconcreteな`BackboneBundleSpec` entriesである。
 
 利用側は既存backbone generation pipelineだけとし、pipeline / layout / curve / viewerはrandomizationを再判断しない。
 
@@ -95,7 +95,7 @@ persistent検証はdescriptor構造とsaved relationを検査し、current resol
 
 ruleのconductor countはtopology上の導体数であり、見た目の束を作るためには変動させない。ruleのheight / lateral envelopeは各Bundle instanceを独立にsampleする入力である。resolverはBundle間の最小間隔や収容上限を推測せず、同じ位置へ近づくことを理由にdensityを拒否しない。
 
-相互clearanceが必要なfeatureはrandom resolverの隠れ制約ではなく、その物理担当箇所と入力を別途決める。HVの3相配置はrandomization対象外とする。非HVのsupported placementは連続座標をそのまま使わず、同じroute-wide sideにある有限のsupport slotへ寄せる。
+相互clearanceが必要なfeatureはrandom resolverの隠れ制約ではなく、物理配置のdecision ownerと入力を別途決める。HVの3相配置はrandomization対象外とする。非HVのsupported placementは連続座標をそのまま使わず、同じroute-wide sideにある有限のsupport slotへ寄せる。
 
 load、regenerate、通常updateは保存済みconcrete placementを使い、rerollしない。同一BundleのplacementをPoleごとに変えず、同一route内でsideを反転しない。road-facing sideは外部から与える単純なsignであり、WireはRoadドメインや道路の意味を解釈しない。
 

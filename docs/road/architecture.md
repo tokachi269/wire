@@ -227,7 +227,7 @@ CenterLineとLaneSeparatorは交差点内でdefault gate終了とし、`Junction
 
 解決済み幾何だけを受け取り、頂点・index・normal・UV・mesh groupと有限性検査を行う。接続種別、setback、override適用、境界対応、marking範囲、所有元、style、線幅を決めない。
 
-surfaceの表向きは幾何担当箇所が決める。section順と元segmentのface normalから`ResolvedSurfaceStrip.winding`を導出し、junctionの上面regionは担当箇所がperimeter順を確定する。`emit_geometry`は三角形のnormalをworld-upと比較してindexを反転しない。
+surfaceの表向きは幾何生成処理が決める。section順と元segmentのface normalから`ResolvedSurfaceStrip.winding`を導出し、junctionの上面regionは幾何生成処理がperimeter順を確定する。`emit_geometry`は三角形のnormalをworld-upと比較してindexを反転しない。
 
 これにより、水平上面、横断勾配、gutterの立面、将来の高架下面を同じemit規則で扱い、立面の微小なZ成分を上面と誤認しない。
 
@@ -533,4 +533,4 @@ src/operations/
 src/persistence/
 ```
 
-`src/geometry/`はalignment、section、junctionの純粋幾何を持つ。物理分割は担当箇所を固定するために行い、工程数と一致させない。emitはauthoritative headerをincludeせず、adapterはauthoritative型を構築しない。幾何はgraphを読むがderivedを書かない。
+`src/geometry/`はalignment、section、junctionの純粋幾何を持つ。ソースファイルの分割は実装責務を固定するために行い、工程数と一致させない。emitはauthoritative headerをincludeせず、adapterはauthoritative型を構築しない。幾何はgraphを読むがderivedを書かない。

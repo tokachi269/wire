@@ -105,6 +105,9 @@ EditResult<bool> validate_backbone_spec_external_input(const BackboneSpec& spec)
   return out;
 }
 
+ObjectId source_edge_bundle_for(const CoreState& state, ObjectId edge_id,
+                                const BackboneBundleSpec& bundle_spec);
+
 } // namespace
 
 EditResult<GenerateBundleFromPathResult> pipeline::build(build_input input) {
@@ -115,9 +118,28 @@ EditResult<GenerateBundleFromPathResult> pipeline::build(build_input input) {
   local_by_input_ = std::move(input.local_by_input);
   saved_node_by_input_.clear();
   write_row_continuity_ = input.write_row_continuity;
+  row_continuity_input_ =
+      std::move(input.row_continuity_constraints);
 
   EditResult<GenerateBundleFromPathResult> out{};
   GenerationTiming* timing = input.timing == nullptr ? &out.value.timing : input.timing;
+  if (input.retired_bundle_id != kInvalidObjectId) {
+    route retired{};
+    retired.active = true;
+    retired.retired_bundle_id = input.retired_bundle_id;
+    retired.retired_edge_bundle_ids = std::move(input.retired_edge_bundle_ids);
+    retired.scope_edge_bundle_ids = retired.retired_edge_bundle_ids;
+    const EditResult<bool> checked = check_bundle_retirement(retired);
+    if (!checked.ok) {
+      out.error = checked.error;
+      return out;
+    }
+    retire_untouched(&retired);
+    write_route_result(&out, std::move(retired.change_set),
+                       std::move(retired.made));
+    out.ok = true;
+    return out;
+  }
   EditResult<route> made = emit_route(timing);
   if (!made.ok) {
     out.error = made.error;
@@ -192,13 +214,112 @@ pipeline::build_input pipeline::build_input_from_spec() const {
 
 pipeline::build_input pipeline::build_input_from_saved_scope(
     graph made_graph, std::vector<std::size_t> active_bundle_indices, bool retire_untouched,
-    bool write_row_continuity) const {
+    bool write_row_continuity,
+    std::optional<std::vector<row_continuity_constraint>>
+        row_continuity_constraints) const {
   build_input input{};
   input.made = std::move(made_graph);
   input.active_bundle_indices = std::move(active_bundle_indices);
   input.retire_untouched = retire_untouched;
   input.write_row_continuity = write_row_continuity;
+  input.row_continuity_constraints =
+      std::move(row_continuity_constraints);
   return input;
+}
+
+pipeline::build_input pipeline::build_input_for_bundle_retirement(
+    ObjectId bundle_id, std::vector<ObjectId> edge_bundle_ids) const {
+  build_input input{};
+  input.retired_bundle_id = bundle_id;
+  input.retired_edge_bundle_ids = std::move(edge_bundle_ids);
+  return input;
+}
+
+EditResult<bool> pipeline::check_bundle_retirement(const route& retired) const {
+  auto reject = [](std::string reason) {
+    EditResult<bool> out{};
+    out.error = "backbone unsupported: " + std::move(reason);
+    return out;
+  };
+  const SavedBackboneGraph& graph = state_.view().backbone();
+  const Bundle* retired_bundle =
+      state_.view().bundles().find(retired.retired_bundle_id);
+  if (retired_bundle == nullptr) {
+    return reject("exact Bundle retirement target is missing");
+  }
+
+  std::unordered_set<ObjectId> retired_edge_bundle_ids(
+      retired.retired_edge_bundle_ids.begin(),
+      retired.retired_edge_bundle_ids.end());
+  std::unordered_set<ObjectId> retired_span_ids{};
+  for (const SavedBackboneSpanBinding& binding : graph.span_bindings) {
+    if (retired_edge_bundle_ids.contains(binding.edge_bundle_id)) {
+      retired_span_ids.insert(binding.span_id);
+    }
+  }
+
+  for (const Span& span : state_.view().spans().items()) {
+    if (retired_span_ids.contains(span.id)) continue;
+    for (ObjectId endpoint_node_id :
+         {span.endpoint_node_a_id, span.endpoint_node_b_id}) {
+      const SavedBackboneNode* source_node =
+          state_.view().backbone_node(endpoint_node_id);
+      if (source_node == nullptr || !source_node->has_source_edge) continue;
+
+      const ObjectId source_lo =
+          std::min(source_node->source_edge_node_a,
+                   source_node->source_edge_node_b);
+      const ObjectId source_hi =
+          std::max(source_node->source_edge_node_a,
+                   source_node->source_edge_node_b);
+      ObjectId retired_source_edge_id = kInvalidObjectId;
+      for (ObjectId edge_bundle_id : retired.retired_edge_bundle_ids) {
+        const SavedBackboneEdgeBundle* edge_bundle =
+            state_.view().backbone_edge_bundle(edge_bundle_id);
+        const SavedBackboneEdge* edge = edge_bundle == nullptr
+                                            ? nullptr
+                                            : state_.view().backbone_edge(
+                                                  edge_bundle->edge_id);
+        if (edge != nullptr && std::min(edge->node_a, edge->node_b) == source_lo &&
+            std::max(edge->node_a, edge->node_b) == source_hi) {
+          retired_source_edge_id = edge->edge_id;
+          break;
+        }
+      }
+      if (retired_source_edge_id == kInvalidObjectId) continue;
+
+      const Bundle* branch_bundle =
+          state_.view().bundles().find(span.bundle_id);
+      if (branch_bundle == nullptr) {
+        return reject("surviving source-edge Bundle is missing");
+      }
+      BackboneBundleSpec branch_spec{};
+      branch_spec.bundle_template_id = branch_bundle->bundle_template_id;
+      branch_spec.placement_key = branch_bundle->placement_key;
+
+      const ObjectId resolved_source_edge_bundle =
+          source_edge_bundle_for(state_, retired_source_edge_id, branch_spec);
+      if (retired_edge_bundle_ids.contains(resolved_source_edge_bundle)) {
+        return reject(
+            "exact Bundle retirement cannot discard a surviving source-edge dependency");
+      }
+      const bool retired_bundle_is_candidate =
+          retired_bundle->bundle_template_id == branch_bundle->bundle_template_id &&
+          (retired_bundle->placement_key == 0 ||
+           branch_bundle->placement_key == 0 ||
+           retired_bundle->placement_key == branch_bundle->placement_key);
+      if (resolved_source_edge_bundle == kInvalidObjectId &&
+          retired_bundle_is_candidate) {
+        return reject(
+            "exact Bundle retirement cannot resolve a surviving source-edge dependency");
+      }
+    }
+  }
+
+  EditResult<bool> out{};
+  out.ok = true;
+  out.value = true;
+  return out;
 }
 
 EditResult<pipeline::route> pipeline::emit_route(GenerationTiming* timing) {
@@ -372,6 +493,30 @@ ObjectId saved_node_id_for(const CoreState& state, ObjectId node_or_pole_id) {
   return kInvalidObjectId;
 }
 
+bool saved_edge_is_live(const CoreState& state, ObjectId edge_id) {
+  const auto bundles = state.view().backbone_index().edge_bundles.find(edge_id);
+  return bundles != state.view().backbone_index().edge_bundles.end() &&
+         !bundles->second.empty();
+}
+
+bool saved_node_has_live_incident(const CoreState& state, ObjectId node_id) {
+  const auto incident = state.view().backbone_index().node_edges.find(node_id);
+  return incident != state.view().backbone_index().node_edges.end() &&
+         std::ranges::any_of(incident->second, [&](ObjectId edge_id) {
+           return saved_edge_is_live(state, edge_id);
+         });
+}
+
+std::size_t live_saved_incident_count(const CoreState& state,
+                                      ObjectId node_id) {
+  const auto incident = state.view().backbone_index().node_edges.find(node_id);
+  if (incident == state.view().backbone_index().node_edges.end()) return 0;
+  return static_cast<std::size_t>(std::ranges::count_if(
+      incident->second, [&](ObjectId edge_id) {
+        return saved_edge_is_live(state, edge_id);
+      }));
+}
+
 const SavedBackboneNode* saved_source_node_for(const CoreState& state, const SupportNode& node) {
   if (!node.has_source_edge) {
     return nullptr;
@@ -383,6 +528,13 @@ const SavedBackboneNode* saved_source_node_for(const CoreState& state, const Sup
   }
   const ObjectId lo = std::min(source_a, source_b);
   const ObjectId hi = std::max(source_a, source_b);
+  const BackboneEdgeKey source_key{lo, hi};
+  const auto source_edge =
+      state.view().backbone_index().edge_by_nodes.find(source_key);
+  if (source_edge == state.view().backbone_index().edge_by_nodes.end() ||
+      !saved_edge_is_live(state, source_edge->second)) {
+    return nullptr;
+  }
   for (const SavedBackboneNode& saved : state.view().backbone().nodes) {
     if (saved.pole_id != kInvalidObjectId || saved.support_kind != node.support_kind || !saved.has_source_edge) {
       continue;
@@ -391,7 +543,9 @@ const SavedBackboneNode* saved_source_node_for(const CoreState& state, const Sup
         std::max(saved.source_edge_node_a, saved.source_edge_node_b) != hi) {
       continue;
     }
-    if (std::abs(saved.source_edge_t - node.source_edge_t) <= kUnitlessTolerance) {
+    if (saved_node_has_live_incident(state, saved.node_id) &&
+        std::abs(saved.source_edge_t - node.source_edge_t) <=
+            kUnitlessTolerance) {
       return &saved;
     }
   }
@@ -414,6 +568,20 @@ struct port_scope {
   PortLayer layer = PortLayer::kUnknown;
   int placement_band_id = 0;
 };
+
+// 同じnodeで共有rowへ合流できるのは、同じテンプレートの同じ名目取付位置とlane構成だけとする。
+bool bundle_shares_physical_anchor(const Bundle& bundle, const BackboneBundleSpec& spec) {
+  return bundle.bundle_template_id == spec.bundle_template_id &&
+         bundle.placement_explicit == spec.placement_explicit &&
+         (!spec.placement_explicit ||
+          (bundle.height_m == spec.height_m && bundle.lateral_m == spec.lateral_m));
+}
+
+bool bundle_merges_into_spec_row(const Bundle& bundle, const BackboneBundleSpec& spec, int count,
+                                 double spacing_m) {
+  return bundle_shares_physical_anchor(bundle, spec) && bundle.conductor_count == count &&
+         bundle.phase_spacing_m == spacing_m;
+}
 
 EditResult<spec_view> view_for(const CoreState& state, const BackboneBundleSpec& spec) {
   EditResult<spec_view> out{};
@@ -647,7 +815,7 @@ ObjectId resolve_existing_bundle(const CoreState& state, const graph& made, cons
       if (bundle == nullptr || bundle->bundle_template_id != spec.bundle_template_id) {
         continue;
       }
-      if (spec.placement_key != 0 && bundle->placement_key != 0 &&
+      if (spec.placement_key != 0 &&
           bundle->placement_key != spec.placement_key) {
         continue;
       }
@@ -863,7 +1031,8 @@ SourceEdgeProjectionRef source_projection_for(const CoreState& state, const node
   }
   const BackboneEdgeKey key{std::min(source_a, source_b), std::max(source_a, source_b)};
   const auto edge_it = state.view().backbone_index().edge_by_nodes.find(key);
-  if (edge_it == state.view().backbone_index().edge_by_nodes.end()) {
+  if (edge_it == state.view().backbone_index().edge_by_nodes.end() ||
+      !saved_edge_is_live(state, edge_it->second)) {
     return out;
   }
   out.source_edge_id = edge_it->second;
@@ -1248,6 +1417,22 @@ EditResult<pairs> unsupported_pairs(std::string reason) {
   return out;
 }
 
+bool has_explicit_continuity_pair(
+    const std::optional<std::vector<row_continuity_constraint>>& input,
+    ObjectId node_id, ObjectId edge_a, ObjectId edge_b) {
+  if (!input.has_value() || node_id == kInvalidObjectId ||
+      edge_a == kInvalidObjectId || edge_b == kInvalidObjectId) {
+    return false;
+  }
+  return std::any_of(
+      input->begin(), input->end(),
+      [&](const row_continuity_constraint& item) {
+        return item.node_id == node_id &&
+               ((item.edge_a == edge_a && item.edge_b == edge_b) ||
+                (item.edge_a == edge_b && item.edge_b == edge_a));
+      });
+}
+
 bool has_current_route_pair_at(const graph& made, std::size_t node_id) {
   const link* incoming = nullptr;
   const link* outgoing = nullptr;
@@ -1482,7 +1667,8 @@ void pipeline::retire_untouched(route* route) {
       }
     }
   }
-  if (retired_spans.empty() && retired_ports.empty()) {
+  const bool retires_bundle = route->retired_bundle_id != kInvalidObjectId;
+  if (retired_spans.empty() && retired_ports.empty() && !retires_bundle) {
     return;
   }
 
@@ -1532,49 +1718,49 @@ void pipeline::retire_untouched(route* route) {
   graph.span_bindings.erase(
       std::remove_if(graph.span_bindings.begin(), graph.span_bindings.end(),
                      [&](const SavedBackboneSpanBinding& binding) {
-                       return contains_id(retired_spans, binding.span_id);
+                       return contains_id(retired_spans, binding.span_id) ||
+                              contains_id(route->retired_edge_bundle_ids,
+                                          binding.edge_bundle_id);
                      }),
       graph.span_bindings.end());
   graph.port_bindings.erase(
       std::remove_if(graph.port_bindings.begin(), graph.port_bindings.end(),
                      [&](const SavedBackbonePortBinding& binding) {
-                       return contains_id(retired_ports, binding.port_id);
+                       return contains_id(retired_ports, binding.port_id) ||
+                              contains_id(route->retired_edge_bundle_ids,
+                                          binding.edge_bundle_id);
                      }),
       graph.port_bindings.end());
-
-  // authoritative graphを削除後の唯一の入力としてruntime indexを再構築する。
-  BackboneIndex rebuilt{};
-  for (const SavedBackboneNode& node : graph.nodes) {
-    if (node.pole_id != kInvalidObjectId) {
-      rebuilt.pole_node[node.pole_id] = node.node_id;
+  if (retires_bundle) {
+    graph.row_continuities.erase(
+        std::remove_if(graph.row_continuities.begin(),
+                       graph.row_continuities.end(),
+                       [&](const SavedBackboneRowContinuity& continuity) {
+                         return contains_id(route->retired_edge_bundle_ids,
+                                            continuity.a.edge_bundle_id) ||
+                                contains_id(route->retired_edge_bundle_ids,
+                                            continuity.b.edge_bundle_id);
+                       }),
+        graph.row_continuities.end());
+    graph.edge_bundles.erase(
+        std::remove_if(graph.edge_bundles.begin(), graph.edge_bundles.end(),
+                       [&](const SavedBackboneEdgeBundle& edge_bundle) {
+                         return contains_id(route->retired_edge_bundle_ids,
+                                            edge_bundle.edge_bundle_id);
+                       }),
+        graph.edge_bundles.end());
+    if (state_.authoritative_.edit_state.bundles.remove(
+            route->retired_bundle_id)) {
+      CoreState::add_unique_id(route->change_set.deleted_ids,
+                               route->retired_bundle_id);
+    }
+    for (ObjectId edge_bundle_id : route->retired_edge_bundle_ids) {
+      CoreState::add_unique_id(route->change_set.deleted_ids, edge_bundle_id);
     }
   }
-  for (const SavedBackboneEdge& item : graph.edges) {
-    CoreState::index_add(rebuilt.node_edges, item.node_a, item.edge_id);
-    CoreState::index_add(rebuilt.node_edges, item.node_b, item.edge_id);
-    const BackboneEdgeKey key{std::min(item.node_a, item.node_b), std::max(item.node_a, item.node_b)};
-    rebuilt.edge_by_nodes[key] = item.edge_id;
-  }
-  for (std::size_t position = 0; position < graph.edge_bundles.size(); ++position) {
-    const SavedBackboneEdgeBundle& item = graph.edge_bundles[position];
-    CoreState::index_add(rebuilt.edge_bundles, item.edge_id, item.edge_bundle_id);
-    rebuilt.edge_bundle_by_edge_and_bundle[{item.edge_id, item.bundle_id}] = item.edge_bundle_id;
-    rebuilt.edge_bundle_positions[item.edge_bundle_id] = position;
-    CoreState::index_add(rebuilt.bundle_edge, item.bundle_id, item.edge_id);
-  }
-  for (std::size_t i = 0; i < graph.span_bindings.size(); ++i) {
-    const SavedBackboneSpanBinding& binding = graph.span_bindings[i];
-    CoreState::index_add(rebuilt.edge_bundle_spans, binding.edge_bundle_id, binding.span_id);
-    rebuilt.span_edge_bundle[binding.span_id] = binding.edge_bundle_id;
-    rebuilt.edge_bundle_span_bindings[binding.edge_bundle_id].push_back(i);
-    rebuilt.span_bindings_by_span[binding.span_id].push_back(i);
-  }
-  for (std::size_t i = 0; i < graph.port_bindings.size(); ++i) {
-    const SavedBackbonePortBinding& binding = graph.port_bindings[i];
-    rebuilt.edge_bundle_ports[binding.edge_bundle_id].push_back(i);
-    rebuilt.port_bindings_by_port[binding.port_id].push_back(i);
-  }
-  state_.runtime_.backbone_index = std::move(rebuilt);
+
+  // authoritative graphを削除後の唯一の入力としてruntime indexを再構築する。
+  state_.rebuild_backbone_index();
 }
 
 std::size_t pipeline::local(std::size_t input_point) const {
@@ -1830,11 +2016,13 @@ EditResult<bool> pipeline::prepare() {
           n.saved = saved->node_id;
           n.pos = saved->position;
           n.is_new = false;
-          n.has_source_edge = saved->has_source_edge;
-          n.source_edge_node_a = saved->source_edge_node_a;
-          n.source_edge_node_b = saved->source_edge_node_b;
-          n.source_edge_t = saved->source_edge_t;
-          n.bundle_modes = saved->bundle_modes;
+          if (saved_node_has_live_incident(state_, saved->node_id)) {
+            n.has_source_edge = saved->has_source_edge;
+            n.source_edge_node_a = saved->source_edge_node_a;
+            n.source_edge_node_b = saved->source_edge_node_b;
+            n.source_edge_t = saved->source_edge_t;
+            n.bundle_modes = saved->bundle_modes;
+          }
           g_.nodes.push_back(n);
           continue;
         }
@@ -1997,7 +2185,7 @@ EditResult<bool> pipeline::prepare() {
         continue;
       }
       const SavedBackboneEdge* saved = state_.view().backbone_edge(edge_id);
-      if (saved == nullptr) {
+      if (saved == nullptr || !saved_edge_is_live(state_, edge_id)) {
         continue;
       }
       if (has_requested_saved_pair(saved->node_a, saved->node_b)) {
@@ -2058,6 +2246,10 @@ EditResult<bool> pipeline::prepare() {
       return out;
     }
     const ObjectId edge_id = edge_it->second;
+    if (!saved_edge_is_live(state_, edge_id)) {
+      out.error = "backbone unsupported: source edge context is not live";
+      return out;
+    }
     const SavedBackboneEdge* saved = state_.view().backbone_edge(edge_id);
     if (saved == nullptr) {
       out.error = "backbone unsupported: source edge context is missing";
@@ -2144,9 +2336,8 @@ EditResult<bool> pipeline::check() const {
         }
         continue;
       }
-      const auto incident_it = state_.view().backbone_index().node_edges.find(g_.nodes[local].saved);
       const std::size_t saved_incidents =
-          (incident_it == state_.view().backbone_index().node_edges.end()) ? 0U : incident_it->second.size();
+          live_saved_incident_count(state_, g_.nodes[local].saved);
       if (saved_incidents + current_route_incident_count_at(g_, local) < 2) {
         return unsupported("pass-through node mode requires current route pair or saved junction context");
       }
@@ -2230,6 +2421,10 @@ EditResult<pairs> pipeline::make(const graph& made) const {
     auto is_candidate = [&](std::size_t left, std::size_t right) {
       const link& a = out.value.links[left];
       const link& b = out.value.links[right];
+      if (row_continuity_input_.has_value()) {
+        return has_explicit_continuity_pair(row_continuity_input_, n.saved,
+                                            a.saved, b.saved);
+      }
       if (is_saved_pair_continuation(state_, n, a, b)) {
         return true;
       }
@@ -2516,7 +2711,10 @@ EditResult<bool> pipeline::check(const pairs& ps) const {
           continue;
         }
         const Bundle* bundle = state_.view().bundles().find(edge_bundle->bundle_id);
-        if (bundle != nullptr && bundle->bundle_template_id == spec.bundle_template_id) {
+        if (bundle != nullptr &&
+            bundle->bundle_template_id == spec.bundle_template_id &&
+            (spec.placement_key == 0 ||
+             bundle->placement_key == spec.placement_key)) {
           const auto spans_it = state_.view().backbone_index().edge_bundle_span_bindings.find(edge_bundle_id);
           if (spans_it != state_.view().backbone_index().edge_bundle_span_bindings.end()) {
             const SavedBackboneGraph& graph = state_.view().backbone();
@@ -2555,7 +2753,8 @@ EditResult<std::vector<pipeline::PromotionPlanEntry>> pipeline::plan_promotions(
     node_id_by_local[i] = g_.nodes[i].saved;
   }
 
-  auto edge_bundle_for_spec = [&](ObjectId edge_id, const BackboneBundleSpec& spec,
+  auto edge_bundle_for_spec = [&](ObjectId edge_id, const BackboneBundleSpec& spec, int merge_count,
+                                  double merge_spacing_m,
                                   ObjectId* bundle_id) -> EditResult<ObjectId> {
     EditResult<ObjectId> found{};
     found.value = kInvalidObjectId;
@@ -2567,6 +2766,9 @@ EditResult<std::vector<pipeline::PromotionPlanEntry>> pipeline::plan_promotions(
     if (bundles_it == state_.view().backbone_index().edge_bundles.end()) {
       return found;
     }
+    ObjectId merged_edge_bundle = kInvalidObjectId;
+    ObjectId merged_bundle = kInvalidObjectId;
+    std::size_t merged_count = 0;
     for (ObjectId edge_bundle_id : bundles_it->second) {
       const SavedBackboneEdgeBundle* edge_bundle = state_.view().backbone_edge_bundle(edge_bundle_id);
       const Bundle* bundle = edge_bundle == nullptr ? nullptr : state_.view().bundles().find(edge_bundle->bundle_id);
@@ -2576,8 +2778,13 @@ EditResult<std::vector<pipeline::PromotionPlanEntry>> pipeline::plan_promotions(
       if (spec.source_bundle_id != kInvalidObjectId && bundle->id != spec.source_bundle_id) {
         continue;
       }
-      if (spec.placement_key != 0 && bundle->placement_key != 0 &&
-          bundle->placement_key != spec.placement_key) {
+      if (spec.placement_key != 0 && bundle->placement_key != spec.placement_key) {
+        // 同じ名目取付位置の別ルートは共有rowへ合流できるが、同じkeyの相手を優先する。
+        if (bundle_merges_into_spec_row(*bundle, spec, merge_count, merge_spacing_m)) {
+          ++merged_count;
+          merged_edge_bundle = edge_bundle_id;
+          merged_bundle = bundle->id;
+        }
         continue;
       }
       if (found.value != kInvalidObjectId) {
@@ -2588,6 +2795,12 @@ EditResult<std::vector<pipeline::PromotionPlanEntry>> pipeline::plan_promotions(
       found.value = edge_bundle_id;
       if (bundle_id != nullptr) {
         *bundle_id = bundle->id;
+      }
+    }
+    if (found.value == kInvalidObjectId && merged_count == 1) {
+      found.value = merged_edge_bundle;
+      if (bundle_id != nullptr) {
+        *bundle_id = merged_bundle;
       }
     }
     return found;
@@ -2643,8 +2856,8 @@ EditResult<std::vector<pipeline::PromotionPlanEntry>> pipeline::plan_promotions(
         return false;
       }
       ObjectId bundle_id = kInvalidObjectId;
-      EditResult<ObjectId> edge_bundle =
-          edge_bundle_for_spec(existing.saved, spec, &bundle_id);
+      EditResult<ObjectId> edge_bundle = edge_bundle_for_spec(
+          existing.saved, spec, v.value.count, v.value.spacing_m, &bundle_id);
       if (!edge_bundle.ok) {
         out.error = edge_bundle.error;
         return false;
@@ -2741,6 +2954,7 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
     DerivedBackboneRowKey row_key{};
     int support_level = 0;
     int support_group_id = -1;
+    bool merged_anchor = false;
   };
   // 保存済みsupport groupを予約し、新規group idが衝突しない開始位置を求める。
   std::unordered_map<ObjectId, int> next_support_group_id_by_node{};
@@ -2878,8 +3092,10 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
     }
     return std::isfinite(angle) ? angle : 0.0;
   };
-  auto saved_rows_for_scope = [&](ObjectId node_id, BundleTemplateId bundle_template_id,
-                                  std::uint64_t placement_key) {
+  auto saved_rows_for_scope = [&](ObjectId node_id, const BackboneBundleSpec& bundle_spec,
+                                  int count, double spacing_m) {
+    const BundleTemplateId bundle_template_id = bundle_spec.bundle_template_id;
+    const std::uint64_t placement_key = bundle_spec.placement_key;
     EditResult<std::vector<saved_row_support>> out{};
     for (const SavedBackbonePortBinding& binding : state_.view().backbone().port_bindings) {
       if (binding.row_key.node_id != node_id ||
@@ -2890,9 +3106,12 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
           state_.view().backbone_edge_bundle(binding.edge_bundle_id);
       const Bundle* bundle =
           edge_bundle == nullptr ? nullptr : state_.view().bundles().find(edge_bundle->bundle_id);
+      const bool same_scope_key = placement_key == 0 || bundle == nullptr ||
+                                  bundle->placement_key == 0 ||
+                                  bundle->placement_key == placement_key;
       if (bundle == nullptr ||
-          (placement_key != 0 && bundle->placement_key != 0 &&
-           bundle->placement_key != placement_key)) {
+          (!same_scope_key &&
+           !bundle_merges_into_spec_row(*bundle, bundle_spec, count, spacing_m))) {
         continue;
       }
       if (binding.support_level < 0) {
@@ -2915,24 +3134,23 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
             return item.row_key == representation.value.row_key;
           });
       if (existing == out.value.end()) {
-        out.value.push_back({representation.value.row_key,
-                             binding.support_level,
-                             binding.support_group_id});
+        out.value.push_back({representation.value.row_key, binding.support_level,
+                             binding.support_group_id, !same_scope_key});
       } else if (existing->support_level != binding.support_level ||
                  existing->support_group_id != binding.support_group_id) {
+        // 同じkeyの保存済み判断が正本で、合流候補はそれを上書きしない。
+        if (!same_scope_key) {
+          continue;
+        }
+        if (existing->merged_anchor) {
+          existing->support_level = binding.support_level;
+          existing->support_group_id = binding.support_group_id;
+          existing->merged_anchor = false;
+          continue;
+        }
         out.error = "backbone unsupported: saved row support assignment is inconsistent";
         return out;
       }
-    }
-    std::vector<bool> used(out.value.size(), false);
-    for (const saved_row_support& row : out.value) {
-      const int level = row.support_level;
-      if (level < 0 || static_cast<std::size_t>(level) >= used.size() ||
-          used[static_cast<std::size_t>(level)]) {
-        out.error = "backbone unsupported: saved row support assignment is not contiguous";
-        return out;
-      }
-      used[static_cast<std::size_t>(level)] = true;
     }
     out.ok = true;
     return out;
@@ -3013,23 +3231,61 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
           ps.rows[active_rows.front()].node < g_.nodes.size()
               ? g_.nodes[ps.rows[active_rows.front()].node].saved
               : kInvalidObjectId;
-      EditResult<std::vector<saved_row_support>> existing_rows =
-          saved_rows_for_scope(node_id, tmpl->id, bundle_spec.placement_key);
+      const EditResult<spec_view> bundle_view = view_for(state_, bundle_spec);
+      if (!bundle_view.ok) {
+        out.error = bundle_view.error;
+        return out;
+      }
+      EditResult<std::vector<saved_row_support>> existing_rows = saved_rows_for_scope(
+          node_id, bundle_spec, bundle_view.value.count, bundle_view.value.spacing_m);
       if (!existing_rows.ok) {
         out.error = existing_rows.error;
         return out;
       }
-      std::vector<bool> used_levels(
-          existing_rows.value.size() + active_rows.size() + 1, false);
+      std::unordered_set<std::size_t> used_levels{};
       for (const saved_row_support& saved : existing_rows.value) {
-        if (saved.support_level < 0 ||
-            static_cast<std::size_t>(saved.support_level) >=
-                used_levels.size()) {
+        if (saved.support_level < 0) {
           out.error =
               "backbone unsupported: saved row support level is invalid";
           return out;
         }
-        used_levels[static_cast<std::size_t>(saved.support_level)] = true;
+        used_levels.insert(static_cast<std::size_t>(saved.support_level));
+      }
+      // Reserve physical space across route identities without making those
+      // rows eligible for topology or support-group reuse below.
+      for (const SavedBackbonePortBinding& binding : state_.view().backbone().port_bindings) {
+        if (binding.row_key.node_id != node_id || binding.bundle_template_id != tmpl->id) {
+          continue;
+        }
+        const SavedBackboneEdgeBundle* edge_bundle =
+            state_.view().backbone_edge_bundle(binding.edge_bundle_id);
+        const Bundle* saved_bundle = edge_bundle == nullptr
+            ? nullptr : state_.view().bundles().find(edge_bundle->bundle_id);
+        if (saved_bundle == nullptr ||
+            !bundle_shares_physical_anchor(*saved_bundle, bundle_spec)) {
+          continue;
+        }
+        if (binding.support_level < 0) {
+          out.error = "backbone unsupported: saved row support level is invalid";
+          return out;
+        }
+        used_levels.insert(static_cast<std::size_t>(binding.support_level));
+      }
+      // A route may start above level zero when another route owns the lower
+      // levels. Its own rows must still be distinct and all lower slots occupied.
+      std::unordered_set<std::size_t> own_levels{};
+      for (const saved_row_support& saved : existing_rows.value) {
+        const std::size_t level = static_cast<std::size_t>(saved.support_level);
+        if (!own_levels.insert(level).second) {
+          out.error = "backbone unsupported: saved row support assignment is not contiguous";
+          return out;
+        }
+        for (std::size_t lower = 0; lower < level; ++lower) {
+          if (!used_levels.contains(lower)) {
+            out.error = "backbone unsupported: saved row support assignment is not contiguous";
+            return out;
+          }
+        }
       }
       auto row_matches_saved = [&](std::size_t row_id,
                                    const saved_row_support& saved) {
@@ -3068,16 +3324,10 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
           support_level =
               static_cast<std::size_t>(selected_existing_level);
         } else {
-          while (support_level < used_levels.size() &&
-                 used_levels[support_level]) {
+          while (used_levels.contains(support_level)) {
             ++support_level;
           }
-          if (support_level >= used_levels.size()) {
-            out.error =
-                "backbone unsupported: support level allocation failed";
-            return out;
-          }
-          used_levels[support_level] = true;
+          used_levels.insert(support_level);
         }
         const int support_group_id =
             selected_existing_level >= 0 && selected_existing_group_id >= 0
@@ -3917,6 +4167,7 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
     }
     node_id_by_local[i] = state_.save_backbone_node(made.poles[i], g_.nodes[i].pos, g_.nodes[i].support, source_a,
                                                     source_b, g_.nodes[i].source_edge_t, g_.nodes[i].bundle_modes);
+    g_.nodes[i].saved = node_id_by_local[i];
     if (g_.nodes[i].on_route && i < path_index_by_local.size() && path_index_by_local[i] >= 0) {
       EditResult<bool> indexed =
           state_.bind_backbone_node_path_point_index(node_id_by_local[i], path_index_by_local[i]);
@@ -3942,9 +4193,15 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
     }
     if (edge.is_new) {
       if (edge.saved == kInvalidObjectId) {
-        edge_by_link[edge.id] = state_.save_backbone_edge(node_id_by_local[edge.a], node_id_by_local[edge.b],
-                                                          edge.route, edge.order, edge.dir,
-                                                          spec_.constraints.lateral_offset_m);
+        const SavedBackboneEdgeRef saved_edge = state_.save_backbone_edge(
+            node_id_by_local[edge.a], node_id_by_local[edge.b], edge.route,
+            edge.order, edge.dir, spec_.constraints.lateral_offset_m);
+        if (saved_edge.edge_id == kInvalidObjectId) {
+          out.error =
+              "backbone unsupported: saved edge identity is incompatible with the requested route";
+          return out;
+        }
+        edge_by_link[edge.id] = saved_edge;
         continue;
       }
       edge_by_link[edge.id] = ref_for_existing_edge(state_, g_, edge);
@@ -4163,6 +4420,58 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
         return true;
       };
 
+  auto constrained_lane_pairs =
+      [&](ObjectId node_id, std::size_t link_a, std::size_t link_b,
+          std::size_t lane_count)
+      -> EditResult<std::vector<std::pair<std::size_t, std::size_t>>> {
+    EditResult<std::vector<std::pair<std::size_t, std::size_t>>> result{};
+    if (!row_continuity_input_.has_value() ||
+        link_a >= edge_by_link.size() || link_b >= edge_by_link.size()) {
+      result.error =
+          "backbone internal: row continuity constraint input is missing";
+      return result;
+    }
+    const ObjectId edge_a = edge_by_link[link_a].edge_id;
+    const ObjectId edge_b = edge_by_link[link_b].edge_id;
+    std::vector<bool> used_a(lane_count, false);
+    std::vector<bool> used_b(lane_count, false);
+    for (const row_continuity_constraint& constraint :
+         *row_continuity_input_) {
+      if (constraint.node_id != node_id) continue;
+      std::size_t lane_a = bad;
+      std::size_t lane_b = bad;
+      if (constraint.edge_a == edge_a && constraint.edge_b == edge_b) {
+        lane_a = constraint.lane_a;
+        lane_b = constraint.lane_b;
+      } else if (constraint.edge_a == edge_b &&
+                 constraint.edge_b == edge_a) {
+        lane_a = constraint.lane_b;
+        lane_b = constraint.lane_a;
+      } else {
+        continue;
+      }
+      if (lane_a >= lane_count || lane_b >= lane_count || used_a[lane_a] ||
+          used_b[lane_b]) {
+        result.error =
+            "backbone invalid input: row continuity constraint lanes are inconsistent";
+        return result;
+      }
+      used_a[lane_a] = true;
+      used_b[lane_b] = true;
+      result.value.emplace_back(lane_a, lane_b);
+    }
+    if (result.value.size() != lane_count ||
+        std::find(used_a.begin(), used_a.end(), false) != used_a.end() ||
+        std::find(used_b.begin(), used_b.end(), false) != used_b.end()) {
+      result.error =
+          "backbone invalid input: row continuity constraint lanes are incomplete";
+      return result;
+    }
+    std::sort(result.value.begin(), result.value.end());
+    result.ok = true;
+    return result;
+  };
+
   // cross-edge continuityはSpan endpoint対応とは別の正本relationとして保存する。
   if (write_row_continuity_) {
     for (std::size_t row_index = 0; row_index < made.rows.size(); ++row_index) {
@@ -4193,19 +4502,34 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
               "backbone internal: row continuity lane input is missing";
           return out;
         }
-        const EditResult<bool> mirror = mirror_permutable_continuity_lanes(
-            state_, node_id, left_edge_bundle_id, right_edge_bundle_id);
-        if (!mirror.ok) {
-          out.error = mirror.error;
-          return out;
-        }
         const std::size_t lane_count = (*row_ports)[bundle_index].size();
-        for (std::size_t lane = 0; lane < (*row_ports)[bundle_index].size(); ++lane) {
-          const std::size_t right_lane =
-              mirror.value ? lane_count - 1 - lane : lane;
-          if (!bind_continuity_lane(node_id, joined.left, joined.right,
-                                    bundle_index, lane, right_lane)) {
+        if (row_continuity_input_.has_value()) {
+          const auto constrained = constrained_lane_pairs(
+              node_id, joined.left, joined.right, lane_count);
+          if (!constrained.ok) {
+            out.error = constrained.error;
             return out;
+          }
+          for (const auto& [left_lane, right_lane] : constrained.value) {
+            if (!bind_continuity_lane(node_id, joined.left, joined.right,
+                                      bundle_index, left_lane, right_lane)) {
+              return out;
+            }
+          }
+        } else {
+          const EditResult<bool> mirror = mirror_permutable_continuity_lanes(
+              state_, node_id, left_edge_bundle_id, right_edge_bundle_id);
+          if (!mirror.ok) {
+            out.error = mirror.error;
+            return out;
+          }
+          for (std::size_t lane = 0; lane < lane_count; ++lane) {
+            const std::size_t right_lane =
+                mirror.value ? lane_count - 1 - lane : lane;
+            if (!bind_continuity_lane(node_id, joined.left, joined.right,
+                                      bundle_index, lane, right_lane)) {
+              return out;
+            }
           }
         }
       }
@@ -4248,22 +4572,35 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
             edge_bundle_a == edge_bundle_b) {
           continue;
         }
-        const EditResult<bool> mirror = mirror_permutable_continuity_lanes(
-            state_, node_id, edge_bundle_a, edge_bundle_b);
-        if (!mirror.ok) {
-          out.error = mirror.error;
-          return out;
-        }
         const std::size_t lane_count =
             static_cast<std::size_t>(bundle->conductor_count);
-        for (std::size_t lane = 0;
-             lane < lane_count;
-             ++lane) {
-          const std::size_t right_lane =
-              mirror.value ? lane_count - 1 - lane : lane;
-          if (!bind_continuity_lane(node_id, link_a, link_b, bundle_index,
-                                    lane, right_lane)) {
+        if (row_continuity_input_.has_value()) {
+          const auto constrained = constrained_lane_pairs(
+              node_id, link_a, link_b, lane_count);
+          if (!constrained.ok) {
+            out.error = constrained.error;
             return out;
+          }
+          for (const auto& [lane_a, lane_b] : constrained.value) {
+            if (!bind_continuity_lane(node_id, link_a, link_b, bundle_index,
+                                      lane_a, lane_b)) {
+              return out;
+            }
+          }
+        } else {
+          const EditResult<bool> mirror = mirror_permutable_continuity_lanes(
+              state_, node_id, edge_bundle_a, edge_bundle_b);
+          if (!mirror.ok) {
+            out.error = mirror.error;
+            return out;
+          }
+          for (std::size_t lane = 0; lane < lane_count; ++lane) {
+            const std::size_t right_lane =
+                mirror.value ? lane_count - 1 - lane : lane;
+            if (!bind_continuity_lane(node_id, link_a, link_b, bundle_index,
+                                      lane, right_lane)) {
+              return out;
+            }
           }
         }
       }

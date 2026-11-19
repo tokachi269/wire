@@ -5,6 +5,7 @@ import { WireBridge } from "./bridge/wire";
 import { startConsoleLogging } from "./consoleLog";
 import { loadDefaultModelBootstrap } from "./render/modelAssets";
 import { WireScene } from "./render/scene";
+import { wirePatternAssetCache } from "./render/wirePatternAssets";
 import { ViewerStore } from "./store/viewer";
 import { buildIdentitiesMatch, loadRuntimeBuildInfo } from "./buildInfo";
 import {
@@ -23,7 +24,10 @@ const mountTarget = target;
 async function main(): Promise<void> {
   const store = new ViewerStore();
   const stopConsoleLogging = startConsoleLogging(store);
-  const modelBootstrap = await loadDefaultModelBootstrap();
+  const [modelBootstrap, wirePatternFailures] = await Promise.all([
+    loadDefaultModelBootstrap(),
+    wirePatternAssetCache.loadAll()
+  ]);
   const bridge = await WireBridge.create();
   const wasmBuild = bridge.buildIdentity();
   const runtimeBuildInfo = await loadRuntimeBuildInfo();
@@ -72,6 +76,9 @@ async function main(): Promise<void> {
   );
   actions.initialize();
   await actions.restoreWorkspace();
+  if (wirePatternFailures.length > 0) {
+    store.setError(`Wire pattern asset load failed: ${wirePatternFailures.join("; ")}`);
+  }
   const scene = new WireScene(
     store,
     (point, pick) => actions.addViewportPoint(point, pick),

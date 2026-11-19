@@ -4,7 +4,6 @@
     BundleTemplateInfo,
     CableTemplateInfo,
     PoleTemplateInfo,
-    PopulationRuleInfo,
     PortBandInfo
   } from "../model";
   import type { ViewerSnapshot } from "../store/viewer";
@@ -77,8 +76,7 @@
   function cloneBundle(template: BundleTemplateInfo): BundleTemplateInfo {
     return {
       ...template,
-      spanVisualAssembly: { ...template.spanVisualAssembly },
-      populationRules: template.populationRules.map((rule) => ({ ...rule }))
+      spanVisualAssembly: { ...template.spanVisualAssembly }
     };
   }
 
@@ -97,30 +95,6 @@
     const draft = cloneBundle(template);
     change(draft);
     actions.commitBundleTemplate(draft);
-  }
-
-  function updatePopulationRule(
-    template: BundleTemplateInfo,
-    ruleId: number,
-    change: (rule: PopulationRuleInfo) => void,
-    preview = false,
-    control = "population",
-    param = "population",
-    startValue = 0
-  ): void {
-    const draft = cloneBundle(template);
-    const rule = draft.populationRules.find((candidate) => candidate.ruleId === ruleId);
-    if (rule === undefined) return;
-    change(rule);
-    if (preview) {
-      actions.previewBundleTemplate(draft, control, param, startValue);
-    } else {
-      actions.commitBundleTemplate(draft);
-    }
-  }
-
-  function nextPopulationRuleId(template: BundleTemplateInfo): number {
-    return Math.max(0, ...template.populationRules.map((rule) => rule.ruleId)) + 1;
   }
 
   function updatePole(
@@ -377,7 +351,6 @@
         {#each [
           ["helixRadius", "Helix radius (0 = auto-fit)", 0.005],
           ["helixClearance", "Helix clearance", 0.005],
-          ["helixTurnsPerMeter", "Helix turns / m", 0.1],
           ["endpointTrim", "Endpoint trim", 0.05]
         ] as field}
           <label>{field[1]}<input type="number" step={field[2]}
@@ -388,87 +361,19 @@
             })} /></label>
         {/each}
         <p class="hint">Band 0 follows each member's saved band. Helix requires an explicit support band.</p>
-        <details>
-          <summary>Wander, twist, and sampling</summary>
-          {#each [
-            ["memberWanderRatio", "Member wander ratio", 0.05],
-            ["memberWanderWavelength", "Member wander wavelength", 0.1],
-            ["memberWanderPhaseBias", "Member wander phase", 0.1],
-            ["memberTwistTurnsPerMeter", "Member twist turns / m", 0.1],
-            ["memberTwistPhase", "Member twist phase", 0.1]
-          ] as field}
-            <label>{field[1]}<input type="number" step={field[2]}
-              value={fmt(bundle.spanVisualAssembly[field[0] as keyof typeof bundle.spanVisualAssembly] as number)}
-              onchange={(event) => updateBundle(bundle, (draft) => {
-                (draft.spanVisualAssembly[field[0] as keyof typeof draft.spanVisualAssembly] as number) =
-                  round6(numberValue(event));
-              })} /></label>
-          {/each}
-          <label>Helix samples / turn
-            <input type="number" min="4" step="1" value={bundle.spanVisualAssembly.helixSamplesPerTurn}
-              onchange={(event) => updateBundle(bundle, (draft) => {
-                draft.spanVisualAssembly.helixSamplesPerTurn = Math.trunc(numberValue(event));
-              })} />
-          </label>
-          <p class="hint">Member twist also works when helix is disabled.</p>
-        </details>
+        <label>Visual members
+          <input type="number" min="1" step="1" value={bundle.spanVisualAssembly.visualMemberCount}
+            onchange={(event) => updateBundle(bundle, (draft) => {
+              draft.spanVisualAssembly.visualMemberCount = Math.trunc(numberValue(event));
+            })} />
+        </label>
+        <label>Member spacing
+          <input type="number" min="0" step="0.001" value={fmt(bundle.spanVisualAssembly.visualMemberSpacing)}
+            onchange={(event) => updateBundle(bundle, (draft) => {
+              draft.spanVisualAssembly.visualMemberSpacing = round6(numberValue(event));
+            })} />
+        </label>
       </div>
-      <details>
-        <summary>Population rules ({bundle.populationRules.length})</summary>
-        {#each bundle.populationRules as rule (rule.ruleId)}
-          <div class="record">
-            <strong>Rule {rule.ruleId} · free section · extra {rule.minExtraCount}-{rule.maxExtraCount}</strong>
-            {#each [
-              ["ruleId", "Rule id"], ["explicitSeed", "Seed"], ["priority", "Priority"],
-              ["minExtraCount", "Min extra"], ["maxExtraCount", "Max extra"]
-            ] as field}
-              <label>{field[1]}<input type="number" value={rule[field[0] as keyof PopulationRuleInfo] as number}
-                onchange={(event) => updatePopulationRule(bundle, rule.ruleId, (draft) => {
-                  (draft[field[0] as keyof PopulationRuleInfo] as number) = Math.trunc(numberValue(event));
-                })} /></label>
-            {/each}
-            {#each [
-              ["minSpacing", "Min spacing", 0.01],
-              ["lateralMin", "Lateral min", 0.02], ["lateralMax", "Lateral max", 0.02],
-              ["heightMin", "Height min", 0.05], ["heightMax", "Height max", 0.05]
-            ] as field}
-              <label>{field[1]}<input type="number" step={field[2]} value={fmt(rule[field[0] as keyof PopulationRuleInfo] as number)}
-                oninput={(event) => updatePopulationRule(
-                  bundle,
-                  rule.ruleId,
-                  (draft) => {
-                    (draft[field[0] as keyof PopulationRuleInfo] as number) = round6(numberValue(event));
-                  },
-                  true,
-                  `bundle.population.${rule.ruleId}.${field[0]}`,
-                  field[0],
-                  rule[field[0] as keyof PopulationRuleInfo] as number
-                )}
-                onblur={(event) => updatePopulationRule(bundle, rule.ruleId, (draft) => {
-                  (draft[field[0] as keyof PopulationRuleInfo] as number) = round6(numberValue(event));
-                })} /></label>
-            {/each}
-            <button class="secondary" type="button" onclick={() => updateBundle(bundle, (draft) => {
-              draft.populationRules = draft.populationRules.filter((item) => item.ruleId !== rule.ruleId);
-            })}>Remove rule</button>
-          </div>
-        {/each}
-        <button type="button" onclick={() => updateBundle(bundle, (draft) => {
-          const ruleId = nextPopulationRuleId(draft);
-          draft.populationRules.push({
-            ruleId,
-            explicitSeed: 1,
-            priority: 0,
-            minExtraCount: 1,
-            maxExtraCount: 1,
-            minSpacing: 0.05,
-            lateralMin: -1,
-            lateralMax: 1,
-            heightMin: 0,
-            heightMax: 20
-          });
-        })}>Add rule</button>
-      </details>
     {/if}
   </section>
 

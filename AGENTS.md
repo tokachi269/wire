@@ -1,27 +1,27 @@
 # AGENTS.md
-In Code Mode, within each bounded stage, run independent, functions.exec-available tool calls concurrently in one functions.exec call. Use await Promise.allSettled([...]) when partial results are useful, and inspect every result; use await Promise.all([...]) only when any failure should abort the batch. Keep dependencies, waits/resumes, approvals, conflicting or interdependent mutations, and adaptive investigations where each result may change the next step sequential. Do not split otherwise batchable inspections across outer tool calls.
+Code Modeでは、範囲を区切った各工程で、互いに独立しfunctions.execから呼べるツールを1回のfunctions.execで並列実行する。部分的な結果も有用な場合はawait Promise.allSettled([...])を使い、各結果を確認する。いずれかの失敗で一括処理を中止すべき場合だけawait Promise.all([...])を使う。依存する操作、待機・再開、承認、競合または相互依存する状態変更、結果に応じた追加調査は順番に行う。一括実行できる確認を複数の外側のツール呼び出しへ分けない。
 
 ## 目的
 見た目の自然さと内部整合の両方を重視する。内部整合が取れていても、人間が見て不自然なら未完了とする。
 
 ## 基本原則
-- KISS を優先し、必要以上の抽象化・分岐・互換層を増やさない。
+- KISSを優先し、必要以上の抽象化・分岐・互換層を増やさない。
 - 不明な点は不明のまま残し、想像で補完しない。判断に迷う変更は実施せず理由つきで報告する。
 - 旧経路・互換分岐・不要処理は削除候補として扱う。
 - ユーティリティや変換を新設する前に、既存の共有実装を検索する。重複定義を作らない。
 
 ## 命名
-- 強い中心語を置き、修飾語を積んで説明しない。manager/helper/processor のような逃げ語を避ける。
-- 名前は近傍の namespace・型・ファイル文脈で読ませ、新語や言い換えを増やさない。
+- 強い中心語を置き、修飾語を積んで説明しない。manager/helper/processorのような逃げ語を避ける。
+- 名前は近傍のnamespace・型・ファイル文脈で読ませ、新語や言い換えを増やさない。
 
 ## 実装の判断
 - まず直近の指示から決定事項・非対象・受け入れ条件を整理する。
-- production変更前に`docs/architecture.md`、`docs/testing.md`、該当domainのarchitecture、該当operation semanticsを読む。
+- production変更前に`docs/architecture.md`、`docs/testing.md`、該当ドメインのarchitecture、該当操作意味論を読む。
 - agent-development workflowは`docs/engineering/agent_harness.md`を読む。内容を本ファイルへ複製しない。
-- architecture semanticsを本ファイルへ複製しない。新しいdecisionは、実装前にcanonical architecture文書でownerを決める。
-- 操作または対応状態を増やす変更は、先に該当domainの操作×状態意味論表を更新する。未定義セルを現在の実装やtestから推測して埋めない。
+- 設計上の意味を本ファイルへ複製しない。新しいdecisionは、実装前に正本となる設計文書で担当箇所を決める。
+- 操作または対応状態を増やす変更は、先に該当ドメインの操作×状態意味論表を更新する。未定義セルを現在の実装やテストから推測して埋めない。
 - 局所修正で済むなら局所で直す。ただし同じ意味を別の場所で再判定しているなら構造改善を優先する。
-- bool や番兵値を安易に増やさない。新しい例外分岐を足す前に、既存の責務境界が正しいか確認する。
+- boolや番兵値を安易に増やさない。新しい例外分岐を足す前に、既存の責務境界が正しいか確認する。
 
 ## UI変更
 - 機能要件を満たすための局所的なUI追加は、既存の構成・操作体系に沿う範囲で実施してよい。roadmap・phase要件・core機能の記載だけを根拠に、画面全体や既存操作を再設計しない。
@@ -30,34 +30,34 @@ In Code Mode, within each bounded stage, run independent, functions.exec-availab
 
 ## 進捗
 - 最優先は納期。品質確認は前へ進むための最小十分な範囲に絞る。
-- 検証済みの修正はその作業単位で commit してから次へ進む。未コミット差分に別件を積まない。
-- verificationや文書の追加数を進捗としない。守れるcontract、supported scenario、退役できた重複で評価する。
-- 整理作業は test 数ではなく family 単位の退役・物理削除・依存除去を進捗とする。
-- production 変更なしの作業が続いたら停止し、逃げの整理フェーズに入っていないか確認する。
+- 検証済みの修正はその作業単位でcommitしてから次へ進む。未コミット差分に別件を積まない。
+- verificationや文書の追加数を進捗としない。守れる契約、supportedシナリオ、退役できた重複で評価する。
+- 整理作業の進捗は、family単位の退役・物理削除・依存除去で判断する。テスト数は進捗にしない。
+- production変更なしの作業が続いたら停止し、逃げの整理フェーズに入っていないか確認する。
 
 ## 検証
-- verification policyの正本は`docs/testing.md`とする。testやledgerをarchitecture semanticsの正本として扱わない。
+- verification policyの正本は`docs/testing.md`とする。テストやledgerを設計上の意味の正本として扱わない。
 - bug fix終了時に、incident reproducerを永久保存する必要があるか`docs/testing.md`のregression lifecycleで評価する。
-- 検証は変更範囲に見合うものを選ぶ。docs だけの変更で全件テストを回さない。
-- viewer で違和感がある場合、core 幾何の問題か viewer 表示の問題かを切り分ける。判断ロジックは core に置き、viewer には持たせない。
+- 検証は変更範囲に見合うものを選ぶ。docsだけの変更で全件テストを回さない。
+- viewerで違和感がある場合、core幾何の問題かviewer表示の問題かを切り分ける。判断ロジックはcoreに置き、viewerには持たせない。
 
 ## 報告
-出力時に必要に応じて書く:
+出力時に必要に応じて書く。
 - 新しい概念・フィールドを1つ追加した場合、修正が波及した決定箇所の数と場所
-- 観測したこと / 変えたこと / 寄せた責務 / 守った不変条件 / 未完と保留(保留は docs/merge_readiness.md に登録)
+- 観測したこと / 変えたこと / 寄せた責務 / 守った不変条件 / 未完と保留(保留はdocs/merge_readiness.mdに登録)
 - 次に見るべき点
 
-同じ種類の指摘が繰り返された場合は、個別対応で済ませず AGENTS.md への恒久ルール追加を簡潔に提案する。
+同じ種類の指摘が繰り返された場合は、個別対応で済ませずAGENTS.mdへの恒久ルール追加を簡潔に提案する。
 
 ## wire 固有
-- wireのarchitectureは`docs/wire/architecture.md`、操作意味論は`docs/wire/backbone_operation_semantics.md`、モデル・座標規約は`docs/wire/models.md`を読む。domain契約を本ファイルへ複製しない。
-- pipeline.cpp に新しい flag・分岐を足す前に、責務を既存の owner に寄せられるか確認する。
+- wireのarchitectureは`docs/wire/architecture.md`、操作意味論は`docs/wire/backbone_operation_semantics.md`、モデル・座標規約は`docs/wire/models.md`を読む。ドメイン契約を本ファイルへ複製しない。
+- pipeline.cppに新しいflag・分岐を足す前に、責務を既存の担当箇所に寄せられるか確認する。
 
 ## road 固有
-- roadの移行先authorityとbuild境界は docs/road/architecture.md、操作意味論は docs/road/operation_semantics.md、対応範囲は docs/road/supported_operations.md、対象外と将来の範囲は docs/road/backlog.md を正本とする。
+- roadの移行先authorityとbuild境界はdocs/road/architecture.md、操作意味論はdocs/road/operation_semantics.md、対応範囲はdocs/road/supported_operations.md、対象外と将来の範囲はdocs/road/backlog.mdを正本とする。
 
 ## ここに書かないもの
 直近の個別バグ、今回だけの仕様、作業中の閾値、過去ログの要約は都度の指示文に書く。
 
 ## ビルド
-実績あるコマンドは docs/command_cheatsheet.md を参照。
+実績あるコマンドはdocs/command_cheatsheet.mdを参照。

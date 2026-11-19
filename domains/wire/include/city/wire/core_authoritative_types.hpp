@@ -97,6 +97,18 @@ struct SavedBackboneGraph {
   std::vector<SavedBackboneRowContinuity> row_continuities{};
 };
 
+// Explicit-Apply descriptor for one concrete Bundle variation scope.
+struct SavedBackboneBundleVariationInstance {
+  std::uint64_t placement_key = 0;
+  ObjectId bundle_id = kInvalidObjectId;
+};
+
+struct SavedBackboneBundleVariation {
+  ObjectId variation_id = kInvalidObjectId;
+  RouteBundleVariationInput descriptor{};
+  std::vector<SavedBackboneBundleVariationInstance> instances{};
+};
+
 struct EditState {
   // Entity-layer authoritative stores.
   ObjectStore<Pole> poles;

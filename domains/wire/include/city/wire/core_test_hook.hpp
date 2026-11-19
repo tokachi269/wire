@@ -12,6 +12,16 @@ struct CoreStateTestHook {
   static CacheState& cache_state(CoreState& state) { return state.runtime_.cache_state; }
   static RelationIndex& relation_index(CoreState& state) { return state.runtime_.relation_index; }
   static OverrideState& override_state(CoreState& state) { return state.authoritative_.override_state; }
+  static std::vector<SavedBackboneBundleVariation>& backbone_bundle_variations(
+      CoreState& state) {
+    return state.authoritative_.backbone_bundle_variations;
+  }
+  static SavedBackboneGraph& backbone(CoreState& state) {
+    return state.authoritative_.backbone;
+  }
+  static void rebuild_backbone_index(CoreState& state) {
+    state.rebuild_backbone_index();
+  }
   static IdGenerator& id_generator(CoreState& state) { return state.identity_.id_generator; }
   static bool authoritative_equals(const CoreState& a, const CoreState& b) { return a.authoritative_equals(b); }
   static std::unordered_map<ObjectId, SpanRuntimeState>& span_runtime_states(CoreState& state) {
@@ -60,6 +70,21 @@ struct CoreStateTestHook {
       index.span_bindings_by_span[binding.span_id].push_back(i);
     }
     return true;
+  }
+  static bool erase_backbone_row_continuity(CoreState& state,
+                                            ObjectId edge_bundle_id,
+                                            std::size_t lane_index) {
+    SavedBackboneGraph& graph = state.authoritative_.backbone;
+    const std::size_t before = graph.row_continuities.size();
+    std::erase_if(
+        graph.row_continuities,
+        [&](const SavedBackboneRowContinuity& continuity) {
+          return (continuity.a.edge_bundle_id == edge_bundle_id &&
+                  continuity.a.lane_index == lane_index) ||
+                 (continuity.b.edge_bundle_id == edge_bundle_id &&
+                  continuity.b.lane_index == lane_index);
+        });
+    return graph.row_continuities.size() + 1 == before;
   }
   static EditResult<bool> update_backbone_port_binding_frame_exact(
       CoreState& state, ObjectId edge_bundle_id,

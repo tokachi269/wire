@@ -1,27 +1,25 @@
 # wire
 
-電柱・電線networkを生成・編集・検証するnative C++ coreと、開発用viewer。
+電柱と電線のネットワークを生成・編集・検証するC++製Coreと、開発用viewerを提供する。
 
 ## 現在の構成
 
-- `core`: data model、backbone generation、post-edit derive、validation
-- `viewer`: core出力を表示・操作する開発用consumer
-- `tools`: architecture/test family lint
-- `docs`: 現行設計、残存legacy、merge条件、test、実行手順
+- `core`: データモデル、backbone generation、post-edit derive、検証
+- `viewer`: Coreの出力を表示・操作する開発用のアプリケーション
+- `tools`: arch lintとtest-family lint
+- `docs`: 現行設計、残っている旧実装、merge条件、テスト、実行手順
 
-`SavedBackboneGraph`をtopology authorityとし、rules、layout、geom、drawを一方向に派生する。
-viewerは不足したtopologyやplacementを推測しない。
+`SavedBackboneGraph`をtopology authorityとし、rules、layout、geom、drawを一方向に派生する。viewerは不足したtopologyやplacementを推測しない。
 
 ## ドキュメント
 
-1. [repository architecture](docs/architecture.md)
-2. [wire architecture](docs/wire/architecture.md)
-3. [merge readiness](docs/merge_readiness.md)
-4. [testing](docs/testing.md)
-5. [portable agent engineering harness](docs/engineering/agent_harness.md)
-6. [command cheatsheet](docs/command_cheatsheet.md)
-7. [wire documents](docs/wire/README.md)
-8. [road documents](docs/road/README.md)
+1. [リポジトリ共通の設計](docs/architecture.md)
+2. [Wireの設計](docs/wire/architecture.md)
+3. [merge前の確認事項](docs/merge_readiness.md)
+4. [検証方針](docs/testing.md)
+5. [エージェントによる開発支援の共通手順](docs/engineering/agent_harness.md)
+6. [実行コマンド](docs/command_cheatsheet.md)
+7. [docsの索引](docs/README.md)
 
 ## Quick check
 
@@ -32,4 +30,4 @@ python tools\test_family_lint.py
 & .\build-vs18-coretests\domains\wire\Debug\wire_core_tests.exe backbone
 ```
 
-詳細なbuild/viewerコマンドは[command_cheatsheet.md](docs/command_cheatsheet.md)を参照する。
+buildとviewerに関する詳しいcommandは[command_cheatsheet.md](docs/command_cheatsheet.md)を参照する。

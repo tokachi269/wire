@@ -3,9 +3,11 @@
 #include "city/wire/coord_utils.hpp"
 #include "city/wire/support/numeric_tolerances.hpp"
 #include "../generation/support_policy.hpp"
+#include "../state/route_bundle_variation_validation.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <set>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -141,6 +143,81 @@ bool support_group_decision_equal(const SupportGroupDecision& a, const SupportGr
          a.has_side_axis == b.has_side_axis && almost_equal_validation(a.side_axis, b.side_axis, eps) &&
          a.chosen_side == b.chosen_side && almost_equal_validation(a.chosen_side_sign, b.chosen_side_sign, eps) &&
          a.side == b.side && a.origin == b.origin;
+}
+
+void validate_backbone_bundle_variations(const CoreState& state,
+                                         ValidationResult* result) {
+  if (result == nullptr) return;
+  const CoreView core = state.view();
+  const EditState& edit_state = core.edit_state();
+  const SavedBackboneGraph& graph = core.backbone();
+  std::unordered_set<ObjectId> variation_ids{};
+  std::unordered_set<ObjectId> variation_bundle_ids{};
+  auto issue = [&](const char* code, const char* message, ObjectId id) {
+    result->issues.push_back(
+        {ValidationSeverity::kError, code, message, id});
+  };
+  for (const SavedBackboneBundleVariation& variation :
+       core.backbone_bundle_variations()) {
+    if (variation.variation_id == kInvalidObjectId ||
+        !variation_ids.insert(variation.variation_id).second) {
+      issue("BackboneBundleVariationIdentityInvalid",
+            "Backbone Bundle variation requires a unique valid identity",
+            variation.variation_id);
+    }
+    const EditResult<bool> descriptor =
+        detail::validate_route_bundle_variation_descriptor(
+            state, variation.descriptor);
+    if (!descriptor.ok) {
+      issue("BackboneBundleVariationDescriptorInvalid",
+            "Backbone Bundle variation descriptor must be structurally valid",
+            variation.variation_id);
+    }
+    std::unordered_set<std::uint64_t> placement_keys{};
+    for (const SavedBackboneBundleVariationInstance& instance :
+         variation.instances) {
+      const Bundle* bundle = edit_state.bundles.find(instance.bundle_id);
+      if (instance.placement_key == 0 || bundle == nullptr ||
+          bundle->placement_key != instance.placement_key ||
+          !placement_keys.insert(instance.placement_key).second ||
+          !variation_bundle_ids.insert(instance.bundle_id).second) {
+        issue("BackboneBundleVariationInstanceInvalid",
+              "Backbone Bundle variation instance must reference one exact live Bundle placement",
+              instance.bundle_id);
+        continue;
+      }
+      const auto rule = std::ranges::find_if(
+          variation.descriptor.rules,
+          [&](const RandomBackboneBundleRule& candidate) {
+            const auto template_it =
+                core.bundle_templates().find(candidate.bundle_template_id);
+            if (template_it == core.bundle_templates().end() ||
+                candidate.bundle_template_id != bundle->bundle_template_id) {
+              return false;
+            }
+            const int count = candidate.conductor_count > 0
+                                  ? candidate.conductor_count
+                                  : template_it->second.default_count;
+            return count == bundle->conductor_count;
+          });
+      if (rule == variation.descriptor.rules.end()) {
+        issue("BackboneBundleVariationInstanceRuleMissing",
+              "Backbone Bundle variation instance has no matching descriptor rule ordinal",
+              instance.bundle_id);
+      }
+    }
+  }
+  for (const SavedBackboneEdge& edge : graph.edges) {
+    const bool has_live_bundle = std::ranges::any_of(
+        graph.edge_bundles, [&](const SavedBackboneEdgeBundle& edge_bundle) {
+          return edge_bundle.edge_id == edge.edge_id;
+        });
+    if (!has_live_bundle) {
+      issue("BackboneRetainedEdgeOwnerMissing",
+            "A physical edge must be owned by a live Bundle",
+            edge.edge_id);
+    }
+  }
 }
 
 double template_layer_base_z_for_validation(const CoreView& core, const Pole& pole, ConnectionCategory category) {
@@ -354,6 +431,8 @@ ValidationResult CoreState::ValidateFast() const {
     }
   }
 
+  validate_backbone_bundle_variations(*this, &result);
+
   for (const auto& [pole_id, override_value] : authoritative_.override_state.pole_orientation_by_pole) {
     if (edit_state.poles.find(pole_id) == nullptr) {
       result.issues.push_back(
@@ -405,6 +484,7 @@ ValidationResult CoreState::Validate() const {
   const auto& model_assembly_templates = core.model_assembly_templates();
   const auto& port_resolution_debug_records = core.port_resolution_debug_records();
   const SavedBackboneGraph& backbone = core.backbone();
+  validate_backbone_bundle_variations(*this, &result);
 
   const auto finite_vec3 = [](const Vec3d& value) {
     return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
@@ -720,20 +800,16 @@ ValidationResult CoreState::Validate() const {
     const SpanVisualAssemblyTemplate& assembly = bundle_template.span_visual_assembly;
     const bool values_valid = std::isfinite(assembly.helix_radius_m) && assembly.helix_radius_m >= 0.0 &&
         std::isfinite(assembly.helix_clearance_m) && assembly.helix_clearance_m >= 0.0 &&
-        std::isfinite(assembly.helix_turns_per_meter) && assembly.helix_turns_per_meter >= 0.0 &&
-        assembly.helix_samples_per_turn >= 4 && std::isfinite(assembly.endpoint_trim_m) &&
-        assembly.endpoint_trim_m >= 0.0 && std::isfinite(assembly.member_wander_ratio) &&
-        assembly.member_wander_ratio >= 0.0 && assembly.member_wander_ratio <= 1.0 &&
-        std::isfinite(assembly.member_wander_wavelength_m) &&
-        std::isfinite(assembly.member_wander_phase_bias) &&
-        std::isfinite(assembly.member_twist_turns_per_meter) && std::isfinite(assembly.member_twist_phase) &&
-        (assembly.member_wander_ratio == 0.0 || assembly.member_wander_wavelength_m > 0.0);
+        std::isfinite(assembly.endpoint_trim_m) &&
+        assembly.endpoint_trim_m >= 0.0 && assembly.visual_member_count >= 1 &&
+        std::isfinite(assembly.visual_member_spacing_m) && assembly.visual_member_spacing_m >= 0.0 &&
+        (assembly.visual_member_count == 1 || assembly.visual_member_spacing_m > 0.0);
     if (!values_valid) {
       result.issues.emplace_back(ValidationIssue{ValidationSeverity::kError, "SpanVisualAssemblyInvalid",
           "Span visual assembly settings are invalid", kInvalidObjectId});
     }
     if (assembly.helix_enabled &&
-        (!assembly.support_path_enabled || assembly.helix_turns_per_meter <= 0.0)) {
+        !assembly.support_path_enabled) {
       result.issues.emplace_back(ValidationIssue{ValidationSeverity::kError, "SpanVisualAssemblySupportMissing",
           "Enabled span visual assembly requires a support path and positive turns-per-meter", kInvalidObjectId});
     }

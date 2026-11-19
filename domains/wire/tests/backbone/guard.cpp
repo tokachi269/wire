@@ -20,6 +20,54 @@ using namespace helpers;
 
 namespace backbone_tests {
 
+bool C892_generic_pipeline_and_rebuild_do_not_read_variation_retention() {
+  const std::filesystem::path pipeline =
+      repo_root() / "domains" / "wire" / "src" / "generation" /
+      "backbone" / "pipeline.cpp";
+  const std::filesystem::path regenerate =
+      repo_root() / "domains" / "wire" / "src" / "generation" /
+      "backbone" / "regenerate.cpp";
+  std::string pipeline_text{};
+  std::string regenerate_text{};
+  if (!file_text(pipeline, &pipeline_text) ||
+      !file_text(regenerate, &regenerate_text)) {
+    return false;
+  }
+  const std::array<std::string, 4> pipeline_forbidden = {
+      "backbone_bundle_variations", "SavedBackboneBundleVariationMembership",
+      "retained_edge_ids", "preserve_edge_ids"};
+  for (const std::string& token : pipeline_forbidden) {
+    if (contains_text(pipeline_text, token)) {
+      return false;
+    }
+  }
+  std::string rebuild_body{};
+  std::string route_builder_body{};
+  if (!function_body(
+          regenerate_text,
+          "EditResult<bool> CoreState::rebuild_loaded_outputs()",
+          &rebuild_body) ||
+      !function_body(
+          regenerate_text,
+          "EditResult<std::vector<LoadedRoute>> continuity_routes_from_saved_graph(",
+          &route_builder_body)) {
+    return false;
+  }
+  const std::array<std::string, 4> rebuild_forbidden = {
+      "backbone_bundle_variations", "memberships", "retained_edge_ids",
+      "preserve_edge_ids"};
+  for (const std::string& token : rebuild_forbidden) {
+    if (contains_text(rebuild_body, token) ||
+        contains_text(route_builder_body, token)) {
+      return false;
+    }
+  }
+  return !contains_text(regenerate_text, "retained_edge_ids") &&
+         !contains_text(regenerate_text, "preserve_edge_ids") &&
+         contains_text(rebuild_body,
+                       "continuity_routes_from_saved_graph(saved)");
+}
+
 bool C370_backbone_no_v1_deps() {
   const std::filesystem::path dir = repo_root() / "domains" / "wire" / "src" / "generation" / "backbone";
   const std::vector<std::string> banned = {
@@ -614,23 +662,24 @@ bool C520_backbone_duplicate_span_binding_preflight_before_emit() {
 }
 
 bool C522_backbone_supported_scope_is_documented() {
-  const std::filesystem::path doc = repo_root() / "docs" / "wire" / "architecture.md";
-  std::string text;
-  if (!file_text(doc, &text)) {
+  std::string generation;
+  std::string state;
+  if (!file_text(repo_root() / "docs" / "wire" / "generation.md", &generation) ||
+      !file_text(repo_root() / "docs" / "wire" / "state_and_persistence.md", &state)) {
     return false;
   }
-  return contains_text(text, "## backbone generation") && contains_text(text, "`GenerateFromBackboneSpec()`") &&
-         contains_text(text, "`unsupported`") && contains_text(text, "`SavedBackboneGraph`") &&
-         contains_text(text, "`pairs make(graph)`") && contains_text(text, "duplicate edge bundle/span binding") &&
-         contains_text(text, "`support_world`") && contains_text(text, "`endpoint_world`") &&
-         contains_text(text, "v1") && contains_text(text, "fallback");
+  return contains_text(generation, "## Pipeline") && contains_text(generation, "`GenerateFromBackboneSpec()`") &&
+         contains_text(generation, "`unsupported`") && contains_text(state, "`SavedBackboneGraph`") &&
+         contains_text(state, "`pairs make(graph)`") && contains_text(generation, "duplicate edge bundle/span binding") &&
+         contains_text(generation, "`support_world`") && contains_text(generation, "`endpoint_world`") &&
+         contains_text(generation, "v1") && contains_text(generation, "fallback");
 }
 
 bool C736_unsupported_hold_docs_do_not_restore_supported_backbone_updates() {
   std::string viewer{};
   std::string readiness{};
   if (!file_text(repo_root() / "docs" / "viewer" / "operations.md", &viewer) ||
-      !file_text(repo_root() / "docs" / "merge_readiness.md", &readiness)) {
+      !file_text(repo_root() / "docs" / "status.md", &readiness)) {
     return false;
   }
   const std::vector<std::string> stale_viewer_phrases{
@@ -761,7 +810,7 @@ bool C538_backbone_viewer_deps_are_not_core_draw_gate() {
   if (!file_text(doc, &text)) {
     return false;
   }
-  return contains_text(text, "viewer") && contains_text(text, "visual/render cache") &&
+  return contains_text(text, "viewer") && contains_text(text, "visual / render cache") &&
          contains_text(text, "topology") && contains_text(text, "pair") &&
          contains_text(text, "row") && contains_text(text, "lowering");
 }
@@ -790,7 +839,7 @@ bool C541_backbone_manual_existing_pole_without_graph_is_gate_rejected() {
 }
 
 bool C542_backbone_usable_mainline_architecture_audit_passes() {
-  const std::filesystem::path doc = repo_root() / "docs" / "wire" / "architecture.md";
+  const std::filesystem::path doc = repo_root() / "docs" / "wire" / "state_and_persistence.md";
   std::string text;
   if (!file_text(doc, &text)) {
     return false;
@@ -1765,12 +1814,10 @@ bool C674_backbone_port_band_selection_has_one_owner() {
   };
   std::string state{};
   std::string endpoint{};
-  std::string population{};
   std::string shared{};
   std::string emit{};
   if (!file_text(repo_root() / "domains/wire/src/state/state.cpp", &state) ||
       !file_text(repo_root() / "domains/wire/src/state/endpoint_refresh_service.cpp", &endpoint) ||
-      !file_text(repo_root() / "domains/wire/src/generation/backbone/population.cpp", &population) ||
       !file_text(repo_root() / "domains/wire/src/state/port_placement.cpp", &shared) ||
       !file_text(repo_root() / "domains/wire/src/generation/backbone/emit_shared.cpp", &emit)) {
     return false;
@@ -1778,11 +1825,9 @@ bool C674_backbone_port_band_selection_has_one_owner() {
   const std::string priority_decision = "band.priority >";
   const std::size_t decision_count =
       occurrences(state, priority_decision) + occurrences(endpoint, priority_decision) +
-      occurrences(population, priority_decision) + occurrences(shared, priority_decision) +
+      occurrences(shared, priority_decision) +
       occurrences(emit, priority_decision);
-  return decision_count <= 2 && !contains_text(population, "identity_score") &&
-         contains_text(population, "backbone_port_bindings_for_edge_bundle") &&
-         contains_text(shared, "placement_band_id");
+  return decision_count <= 2 && contains_text(shared, "placement_band_id");
 }
 
 bool C675_backbone_layout_yaw_does_not_read_debug_records() {
@@ -1932,17 +1977,18 @@ bool C787_web_bundle_template_category_has_no_layer_fallback() {
 
 bool C825_core_silent_fallback_audit_is_recorded() {
   std::string audit{};
-  WIRE_TEST_EXPECT(file_text(repo_root() / "docs/wire/core_silent_fallback_audit.md", &audit),
-                   "docs/wire/core_silent_fallback_audit.md is missing");
+  WIRE_TEST_EXPECT(file_text(repo_root() / "docs/history/core_silent_fallback_audit.md", &audit),
+                   "docs/history/core_silent_fallback_audit.md is missing");
+  // Japanese labels use UTF-8 bytes independently of the MSVC execution charset.
   const std::vector<std::string> required_tokens = {
       "HorizontalNormalizedOr",
       "model_assembly.cpp",
       "span_visual_assembly.cpp",
       "detail_curve.cpp",
       "state/template/ports.cpp",
-      "Legitimate degenerate handling",
-      "Upstream inconsistency candidate",
-      "Deferred",
+      "\xe6\xad\xa3\xe5\xbd\x93\xe3\x81\xaa\xe9\x80\x80\xe5\x8c\x96\xe5\x87\xa6\xe7\x90\x86",
+      "\xe4\xb8\x8a\xe6\xb5\x81\xe3\x81\xae\xe4\xb8\x8d\xe6\x95\xb4\xe5\x90\x88\xe5\x80\x99\xe8\xa3\x9c",
+      "\xe4\xbf\x9d\xe7\x95\x99",
   };
   for (const std::string& token : required_tokens) {
     WIRE_TEST_EXPECT(contains_text(audit, token), "silent fallback audit missing token: " + token);
@@ -2030,7 +2076,7 @@ bool C828_core_state_mutable_accessors_are_audited() {
   std::string audit{};
   WIRE_TEST_EXPECT(file_text(repo_root() / "domains/wire/include/city/wire/core_state.hpp", &core_state),
                    "core_state.hpp is missing");
-  WIRE_TEST_EXPECT(file_text(repo_root() / "docs/wire/core_state_mutable_access_audit.md", &audit),
+  WIRE_TEST_EXPECT(file_text(repo_root() / "docs/history/core_state_mutable_access_audit.md", &audit),
                    "core state mutable accessor audit is missing");
   const std::vector<std::string> removed_tokens = {
       "connection_index_access",
@@ -2055,13 +2101,14 @@ bool C828_core_state_mutable_accessors_are_audited() {
 
 bool C829_core_policy_constants_are_classified() {
   std::string audit{};
-  WIRE_TEST_EXPECT(file_text(repo_root() / "docs/wire/core_policy_constants.md", &audit),
-                   "docs/wire/core_policy_constants.md is missing");
+  WIRE_TEST_EXPECT(file_text(repo_root() / "docs/history/core_policy_constants.md", &audit),
+                   "docs/history/core_policy_constants.md is missing");
+  // Japanese labels use UTF-8 bytes independently of the MSVC execution charset.
   const std::vector<std::string> required_tokens = {
-      "Physical / numeric identity",
-      "Fixed contract",
-      "Visual policy",
-      "Tuning candidate",
+      "\xe7\x89\xa9\xe7\x90\x86\xe3\x83\xbb\xe6\x95\xb0\xe5\xad\xa6\xe4\xb8\x8a\xe3\x81\xae\xe5\xae\x9a\xe6\x95\xb0",
+      "\xe5\x9b\xba\xe5\xae\x9a\xe3\x81\x95\xe3\x82\x8c\xe3\x81\x9f\xe5\xa5\x91\xe7\xb4\x84",
+      "\xe8\xa6\x8b\xe3\x81\x9f\xe7\x9b\xae\xe3\x81\xae\xe6\x96\xb9\xe9\x87\x9d",
+      "\xe8\xaa\xbf\xe6\x95\xb4\xe5\x80\x99\xe8\xa3\x9c",
       "kNodePatchHorizontalLengthM",
       "kPatchMetersPerSegment",
       "kAvoidClearanceM",
@@ -2179,8 +2226,8 @@ bool C831_normalization_fallback_calls_are_classified_in_source() {
 
 bool C832_resolve_branch_pick_pure_split_is_merge_readiness_hold() {
   std::string readiness{};
-  WIRE_TEST_EXPECT(file_text(repo_root() / "docs/merge_readiness.md", &readiness),
-                   "docs/merge_readiness.md is missing");
+  WIRE_TEST_EXPECT(file_text(repo_root() / "docs/status.md", &readiness),
+                   "docs/status.md is missing");
   const std::vector<std::string> required_tokens = {
       "R2",
       "ResolveBranchPick",

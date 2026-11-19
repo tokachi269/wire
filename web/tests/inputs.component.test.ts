@@ -49,7 +49,7 @@ describe("viewer numeric inputs", () => {
     expect(placementPanel?.querySelectorAll('input[aria-label$="count"]')).toHaveLength(0);
   });
 
-  it("updates existing Bundle placement without regenerating the route", async () => {
+  it("rejects individual placement edits for a recipe-backed route", async () => {
     const mounted = await mountViewer();
     expect(current(mounted.store).pathPoints).toHaveLength(0);
     const source = current(mounted.store).drawBundlePlacements[0];
@@ -65,7 +65,8 @@ describe("viewer numeric inputs", () => {
     expect(afterScene.poles).toHaveLength(beforeScene.poles.length);
     expect(afterScene.spans).toHaveLength(beforeScene.spans.length);
     expect(current(mounted.store).logs).toHaveLength(beforeLogCount);
-    expect(afterZ).toBeGreaterThan(beforeZ + 0.25);
+    expect(afterZ).toBe(beforeZ);
+    expect(current(mounted.store).error).toContain("explicit variation Apply");
   });
 
   it("duplicates a Bundle placement and generates independent support and helix output", async () => {
@@ -78,6 +79,9 @@ describe("viewer numeric inputs", () => {
     );
     expect(optical).toBeDefined();
     expect(source).toBeDefined();
+    const initialOpticalCount = current(mounted.store).drawBundlePlacements.filter(
+      (placement) => placement.bundleTemplateId === optical!.id
+    ).length;
 
     const duplicate = [...document.querySelectorAll("button")].find(
       (button) => button.getAttribute("aria-label") === `Duplicate ${optical!.name}`
@@ -89,12 +93,15 @@ describe("viewer numeric inputs", () => {
     const copies = current(mounted.store).drawBundlePlacements.filter(
       (placement) => placement.bundleTemplateId === optical!.id
     );
-    expect(copies).toHaveLength(2);
+    expect(copies).toHaveLength(initialOpticalCount + 1);
+    const sourceCopyIndex = copies.findIndex((placement) => placement.id === source!.id);
+    const duplicatedCopy = copies[sourceCopyIndex + 1];
+    expect(duplicatedCopy).toBeDefined();
     const placementIds = current(mounted.store).drawBundlePlacements.map((placement) => placement.id);
-    expect(placementIds.indexOf(copies[1].id)).toBe(placementIds.indexOf(copies[0].id) + 1);
+    expect(placementIds.indexOf(duplicatedCopy.id)).toBe(placementIds.indexOf(source!.id) + 1);
     expect(document.body.textContent).toContain("OPT 1");
     expect(document.body.textContent).toContain("OPT 2");
-    mounted.actions.updateDrawBundlePlacement(copies[1].id, {
+    mounted.actions.updateDrawBundlePlacement(duplicatedCopy.id, {
       height: 8.4,
       offset: 0.4,
       spacing: 0.47
@@ -107,7 +114,7 @@ describe("viewer numeric inputs", () => {
       (part) => part.info.bundleTemplateId === optical!.id
     );
     const bundleIds = [...new Set(opticalParts.map((part) => part.info.sourceBundleId))];
-    expect(bundleIds).toHaveLength(2);
+    expect(bundleIds).toHaveLength(copies.length);
     for (const bundleId of bundleIds) {
       expect(opticalParts.filter((part) =>
         part.info.sourceBundleId === bundleId && part.info.supplementalKind === 1
@@ -129,6 +136,43 @@ describe("viewer numeric inputs", () => {
     await tick();
 
     expect(mounted.bridge.geometrySettings().sagFactor).toBeCloseTo(next, 8);
+  });
+
+  it("uses one route variation panel and applies the selected route immediately", async () => {
+    const mounted = await mountViewer();
+    const span = current(mounted.store).spans[0];
+    expect(span).toBeDefined();
+
+    mounted.actions.select("span", span.id);
+    await tick();
+    const section = [...document.querySelectorAll("section")].find((item) =>
+      item.querySelector("h2")?.textContent === "Route variation"
+    );
+    expect(section).toBeDefined();
+    expect(document.body.textContent).not.toContain("Selected route variation");
+    expect(section!.textContent).toContain("Editing: Route #");
+    const sliders = section!.querySelectorAll<HTMLInputElement>('input[type="range"]');
+    expect(sliders).toHaveLength(3);
+
+    sliders[1].value = "0.5";
+    sliders[1].dispatchEvent(new Event("input", { bubbles: true }));
+    await tick();
+    expect(current(mounted.store).error).toBe("");
+    expect(current(mounted.store).selectedRouteVariationControls.heightSpread).toBe(0.5);
+
+    const variationId = current(mounted.store).selectedRouteVariation!.variationId!;
+    const persisted = mounted.bridge.backboneBundleVariation(variationId);
+    expect(persisted.found).toBe(true);
+    const lowVoltage = persisted.rules?.find(
+      (rule) => rule.bundleTemplateId === 102
+    );
+    expect(lowVoltage!.heightMax - lowVoltage!.heightMin).toBeCloseTo(0.35, 12);
+  });
+
+  it("keeps the route density evaluation range at five times", async () => {
+    await mountViewer();
+    expect(inputForLabel("Line density").max).toBe("5");
+    expect(() => inputForLabel("Bundle looseness (non-HV)")).toThrow();
   });
 
   it("changes the draw plane by three meters with PageUp and PageDown", async () => {
@@ -163,51 +207,6 @@ describe("viewer numeric inputs", () => {
     grid.dispatchEvent(new Event("change", { bubbles: true }));
     await tick();
     expect(current(mounted.store).showGroundGrid).toBe(false);
-  });
-
-  it("applies bundle population input to the selected template", async () => {
-    const mounted = await mountViewer();
-    let selectedId: number | null = null;
-    const unsubscribe = mounted.store.value.subscribe((snapshot) => {
-      selectedId = snapshot.selectedBundleTemplateId;
-    });
-    unsubscribe();
-    let before = mounted.bridge.bundleTemplates()
-      .find((template) => template.id === selectedId);
-    expect(before).toBeDefined();
-    if (before!.populationRules.length === 0) {
-      mounted.actions.commitBundleTemplate({
-        ...before!,
-        populationRules: [{
-          ruleId: 1,
-          explicitSeed: 1,
-          priority: 0,
-          minExtraCount: 1,
-          maxExtraCount: 1,
-          minSpacing: 0.05,
-          lateralMin: -1,
-          lateralMax: 1,
-          heightMin: 0,
-          heightMax: 20
-        }]
-      });
-      await tick();
-      before = mounted.bridge.bundleTemplates()
-        .find((template) => template.id === selectedId);
-    }
-    const rule = before!.populationRules[0];
-    const input = inputForDetails("Population rules", "Min spacing");
-    const next = rule.minSpacing + 0.01;
-    input.value = String(next);
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    input.dispatchEvent(new FocusEvent("blur", { bubbles: true }));
-    await tick();
-
-    const after = mounted.bridge.bundleTemplates()
-      .find((template) => template.id === selectedId);
-    expect(after?.populationRules.find((candidate) => candidate.ruleId === rule.ruleId)
-      ?.minSpacing).toBeCloseTo(next, 8);
   });
 
   it("exposes helix controls and applies them to the selected bundle template", async () => {
@@ -454,7 +453,9 @@ describe("viewer numeric inputs", () => {
       mounted.actions.previewViewportPoint([x + 12, 0, 0]);
       expect(mounted.actions.addViewportPoint([x + 12, 0, 0])).toEqual({ kind: "commit-succeeded" });
       mounted.actions.previewViewportPoint([x + 12, 10, 0]);
-      expect(mounted.actions.finishDrawSession()).toEqual({ kind: "commit-succeeded" });
+      const wireFinish = mounted.actions.finishDrawSession();
+      expect(wireFinish, current(mounted.store).lastCommitFailure?.message)
+        .toEqual({ kind: "commit-succeeded" });
       expect(current(mounted.store).pathPoints).toEqual([]);
       expect(current(mounted.store).lastCommitFailure).toBeNull();
     }
@@ -588,20 +589,6 @@ function inputForLabel(text: string): HTMLInputElement {
   const input = label?.querySelector("input");
   if (!(input instanceof HTMLInputElement)) {
     throw new Error(`input not found for label: ${text}`);
-  }
-  return input;
-}
-
-function inputForDetails(summaryText: string, labelText: string): HTMLInputElement {
-  const details = [...document.querySelectorAll("details")]
-    .find((candidate) =>
-      candidate.querySelector("summary")?.textContent?.trim().startsWith(summaryText)
-    );
-  const label = [...(details?.querySelectorAll("label") ?? [])]
-    .find((candidate) => candidate.textContent?.trim().startsWith(labelText));
-  const input = label?.querySelector("input");
-  if (!(input instanceof HTMLInputElement)) {
-    throw new Error(`input not found: ${summaryText} / ${labelText}`);
   }
   return input;
 }

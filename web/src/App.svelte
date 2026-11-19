@@ -419,7 +419,12 @@
           <div class="draw-panel">
             <div class="draw-panel-head">
               <p class="panel-label">DRAW PATH</p>
-              <strong class="point-count">{snapshot.pathPoints.length} points</strong>
+              <strong class="point-count">
+                {snapshot.pathPoints.length} points
+                {#if snapshot.wireRouteSeed !== null}
+                  · seed {snapshot.wireRouteSeed}
+                {/if}
+              </strong>
             </div>
             <label>
               Pole template
@@ -443,7 +448,9 @@
                 {#if template !== undefined && template.category !== 4}
                   {@const siblings = snapshot.drawBundlePlacements.filter((item) => item.bundleTemplateId === template.id)}
                   {@const index = siblings.findIndex((item) => item.id === placement.id)}
-                  <div class="bundle-placement">
+                  <div class="bundle-placement"
+                    data-bundle-template-id={placement.bundleTemplateId}
+                    data-placement-key={placement.id}>
                     <span class="bundle-placement-name">
                       <strong>{categoryShort(template.category)}{siblings.length > 1 ? ` ${index + 1}` : ""}</strong>
                       <button class="bundle-placement-add" type="button"

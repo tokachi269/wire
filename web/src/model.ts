@@ -34,6 +34,7 @@ export interface EditResult {
   generatedPoleIds?: string[];
   generatedNodeIds?: string[];
   generatedSpanIds?: string[];
+  variationId?: string;
   totalMs: number;
   timing: GenerationTiming;
 }
@@ -62,6 +63,10 @@ export interface WireIntervalRequest {
   poleTypeId: number;
   directionMode: number;
   maxTiltDeg: number;
+  variationId?: string;
+  variationRules?: RandomBundleRule[];
+  routeSeed?: number;
+  preferredSideSign?: number;
 }
 
 export interface WireIntervalResult extends EditResult {
@@ -86,6 +91,7 @@ export interface VisualPartInfo {
   laneIndex: number;
   runId: number;
   sampleCount: number;
+  resolvedHelixRadius: number;
 }
 
 export interface VisualModelInstanceInfo {
@@ -199,6 +205,7 @@ export interface SpanInfo {
   id: string;
   portAId: string;
   portBId: string;
+  bundleId: string;
 }
 
 export interface SpanLayoutEndpointInfo {
@@ -279,7 +286,6 @@ export interface BundleTemplateInfo {
   rowFixtureAssemblyId: number;
   endpointFixtureAssemblyId: number;
   spanVisualAssembly: SpanVisualAssemblyInfo;
-  populationRules: PopulationRuleInfo[];
 }
 
 export interface BundlePlacement {
@@ -293,6 +299,31 @@ export interface BundlePlacement {
   spacing: number;
 }
 
+export interface RandomBundleRule {
+  bundleTemplateId: number;
+  minInstances: number;
+  maxInstances: number;
+  conductorCount: number;
+  heightMin: number;
+  heightMax: number;
+  lateralAbsMin: number;
+  lateralAbsMax: number;
+}
+
+export interface RouteBundleVariationResult extends OperationResult {
+  placements: BundlePlacement[];
+}
+
+export interface BackboneBundleVariationInfo extends OperationResult {
+  found: boolean;
+  variationId?: string;
+  routeSeed?: number;
+  preferredSideSign?: number;
+  poleTypeId?: number;
+  rules?: RandomBundleRule[];
+  instances?: Array<{ placementKey: number; bundleId: string }>;
+}
+
 export interface DefaultBundlePlacementInfo extends OperationResult {
   height: number;
   offset: number;
@@ -304,27 +335,9 @@ export interface SpanVisualAssemblyInfo {
   helixEnabled: boolean;
   helixRadius: number;
   helixClearance: number;
-  helixTurnsPerMeter: number;
-  helixSamplesPerTurn: number;
   endpointTrim: number;
-  memberWanderRatio: number;
-  memberWanderWavelength: number;
-  memberWanderPhaseBias: number;
-  memberTwistTurnsPerMeter: number;
-  memberTwistPhase: number;
-}
-
-export interface PopulationRuleInfo {
-  ruleId: number;
-  explicitSeed: number;
-  priority: number;
-  minExtraCount: number;
-  maxExtraCount: number;
-  minSpacing: number;
-  lateralMin: number;
-  lateralMax: number;
-  heightMin: number;
-  heightMax: number;
+  visualMemberCount: number;
+  visualMemberSpacing: number;
 }
 
 export interface CableTemplateInfo {
@@ -403,4 +416,22 @@ export interface VisualSettings {
   enableInsulators: boolean;
   insulatorRadius: number;
   insulatorLength: number;
+}
+
+export interface VariationSettings {
+  enabled: boolean;
+  globalSeed: number;
+  worldCellSize: number;
+  worldBiasScale: number;
+  flowBiasScale: number;
+  poleDeltaScale: number;
+  localJitterScale: number;
+  sagVariationScale: number;
+  branchDownOffsetVariationScale: number;
+}
+
+export interface RouteVariationControls {
+  density: number;
+  heightSpread: number;
+  lateralSpread: number;
 }

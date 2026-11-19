@@ -472,7 +472,369 @@ describe("wire wasm smoke", () => {
     loaded.delete();
   });
 
-  it("keeps non-Auto final viewer samples on the requested parabola", () => {
+  it("persists, inspects, applies, extends, and reloads a route bundle variation", () => {
+    const runState = createState();
+    const rules = [{
+      bundleTemplateId: 102,
+      minInstances: 1,
+      maxInstances: 1,
+      conductorCount: 1,
+      heightMin: 7.1,
+      heightMax: 7.1,
+      lateralAbsMin: 0.25,
+      lateralAbsMax: 0.25
+    }];
+    const previewFirst = runState.previewBundleVariation(
+      new Float64Array([0, 0, 0, 12, 0, 0]), rules, 12345, -1,
+      0, 1, 0, 0, []
+    );
+    expect(previewFirst.ok, previewFirst.error).toBe(true);
+    expect(runState.poleCount()).toBe(0);
+    const first = runState.generateBundleVariation(
+      new Float64Array([0, 0, 0, 12, 0, 0]), rules, 12345, -1,
+      0, 1, 0, 0, []
+    );
+    expect(first.ok, first.error).toBe(true);
+    expect(first.variationId).toMatch(/^\d+$/);
+    expect(first.generatedBundleIds).toHaveLength(1);
+    expect(first.generatedSpanCount).toBe(previewFirst.generatedSpanCount);
+
+    const inspected = runState.backboneBundleVariationForBundle(first.generatedBundleIds![0]);
+    expect(inspected).toMatchObject({
+      ok: true,
+      found: true,
+      variationId: first.variationId,
+      routeSeed: 12345,
+      preferredSideSign: -1,
+      poleTypeId: 1
+    });
+    expect(inspected.rules).toEqual(rules);
+    const initialBundleId = inspected.instances![0].bundleId;
+    const portsForBundle = (bundleId: string) => {
+      const portIds = new Set(
+        Array.from({ length: runState.spanCount() }, (_, index) => runState.span(index))
+          .filter((span) => span.bundleId === bundleId)
+          .flatMap((span) => [span.portAId, span.portBId])
+      );
+      return Array.from({ length: runState.portCount() }, (_, index) => runState.port(index))
+        .filter((port) => portIds.has(port.id));
+    };
+    const initialPorts = portsForBundle(initialBundleId);
+
+    const beforeExtendPreview = runState.saveState();
+    const previewSecond = runState.previewExtendBundleVariation(
+      first.variationId!,
+      new Float64Array([12, 0, 0, 24, 3, 0]),
+      0, 1, 0, 0,
+      [{ pointIndex: 0, supportKind: 0, nodeId: first.generatedNodeIds![1] }]
+    );
+    expect(previewSecond.ok, previewSecond.error).toBe(true);
+    expect(runState.saveState()).toBe(beforeExtendPreview);
+    const second = runState.extendBundleVariation(
+      first.variationId!,
+      new Float64Array([12, 0, 0, 24, 3, 0]),
+      0, 1, 0, 0,
+      [{ pointIndex: 0, supportKind: 0, nodeId: first.generatedNodeIds![1] }]
+    );
+    expect(second.ok, second.error).toBe(true);
+    expect(second.generatedSpanCount).toBe(previewSecond.generatedSpanCount);
+    expect(second.variationId).toBe(first.variationId);
+
+    const changedRules = [{
+      ...rules[0],
+      heightMin: 7.5,
+      heightMax: 7.5,
+      lateralAbsMin: 0.45,
+      lateralAbsMax: 0.45
+    }];
+    const applied = runState.applyBackboneBundleVariation(
+      first.variationId!, changedRules, 12345, -1, 1
+    );
+    expect(applied.ok, applied.error).toBe(true);
+    const changed = runState.backboneBundleVariation(first.variationId!);
+    expect(changed.rules).toEqual(changedRules);
+    expect(changed.instances![0].bundleId).toBe(initialBundleId);
+    const changedPorts = portsForBundle(initialBundleId);
+    expect(Math.max(...changedPorts.map((port) => port.z)))
+      .toBeGreaterThan(Math.max(...initialPorts.map((port) => port.z)) + 0.3);
+    expect(Math.max(...changedPorts.map((port) => Math.abs(port.y))))
+      .toBeGreaterThan(Math.max(...initialPorts.map((port) => Math.abs(port.y))) + 0.1);
+
+    const beforeFailure = runState.saveState();
+    const rejected = runState.applyBackboneBundleVariation(
+      first.variationId!, [{ ...rules[0], minInstances: 2, maxInstances: 1 }],
+      99999, -1, 1
+    );
+    expect(rejected.ok).toBe(false);
+    expect(runState.saveState()).toBe(beforeFailure);
+    expect(runState.backboneBundleVariation(first.variationId!).routeSeed).toBe(12345);
+
+    const saved = runState.saveState();
+    const loaded = createState();
+    expect(loaded.loadState(saved).ok).toBe(true);
+    expect(loaded.backboneBundleVariation(first.variationId!)).toMatchObject({
+      ok: true,
+      found: true,
+      routeSeed: 12345,
+      rules: changedRules
+    });
+    const loadedRules = [{
+      ...changedRules[0], heightMin: 7.7, heightMax: 7.7
+    }];
+    const loadedApply = loaded.applyBackboneBundleVariation(
+      first.variationId!, loadedRules, 12345, -1, 1
+    );
+    expect(loadedApply.ok, loadedApply.error).toBe(true);
+    expect(loaded.backboneBundleVariation(first.variationId!).rules)
+      .toEqual(loadedRules);
+    loaded.delete();
+    runState.delete();
+  });
+
+  it("keeps same-seed route variation placement keys scoped by exact Bundle identity", () => {
+    const runState = createState();
+    const rules = [{
+      bundleTemplateId: 104, minInstances: 1, maxInstances: 1,
+      conductorCount: 1, heightMin: 5.2, heightMax: 5.2,
+      lateralAbsMin: 0.25, lateralAbsMax: 0.25
+    }];
+    const first = runState.generateBundleVariation(
+      new Float64Array([0, 0, 0, 12, 0, 0]), rules, 88601, -1,
+      0, 2, 0, 0, []
+    );
+    const second = runState.generateBundleVariation(
+      new Float64Array([0, 20, 0, 12, 20, 0]), rules, 88601, -1,
+      0, 2, 0, 0, []
+    );
+    expect(first.ok, first.error).toBe(true);
+    expect(second.ok, second.error).toBe(true);
+    const firstInfo = runState.backboneBundleVariation(first.variationId!);
+    const secondBefore = runState.backboneBundleVariation(second.variationId!);
+    expect(firstInfo.instances![0].placementKey)
+      .toBe(secondBefore.instances![0].placementKey);
+    expect(firstInfo.instances![0].bundleId)
+      .not.toBe(secondBefore.instances![0].bundleId);
+
+    const changed = [{ ...rules[0], heightMin: 5.7, heightMax: 5.7 }];
+    const applied = runState.applyBackboneBundleVariation(
+      first.variationId!, changed, 88601, -1, 2
+    );
+    expect(applied.ok, applied.error).toBe(true);
+    expect(runState.backboneBundleVariation(second.variationId!))
+      .toEqual(secondBefore);
+    runState.delete();
+  });
+
+  it("resolves variation branch picks from live instances and excludes zero-count rules", () => {
+    const runState = createState();
+    const rules = [{
+      bundleTemplateId: 104, minInstances: 1, maxInstances: 1,
+      conductorCount: 1, heightMin: 5.2, heightMax: 5.2,
+      lateralAbsMin: 0.25, lateralAbsMax: 0.25
+    }, {
+      bundleTemplateId: 101, minInstances: 0, maxInstances: 0,
+      conductorCount: 3, heightMin: 9.2, heightMax: 9.2,
+      lateralAbsMin: 0.2, lateralAbsMax: 0.2
+    }];
+    const generated = runState.generateBundleVariation(
+      new Float64Array([0, 0, 0, 12, 0, 0]), rules, 88801, -1,
+      0, 2, 0, 0, []
+    );
+    expect(generated.ok, generated.error).toBe(true);
+    const edge = runState.backboneEdge(0);
+    const nodes = Array.from(
+      { length: runState.supportNodeCount() },
+      (_, index) => runState.supportNode(index)
+    );
+    const nodeA = nodes.find((node) => node.id === edge.nodeAId)!;
+    const nodeB = nodes.find((node) => node.id === edge.nodeBId)!;
+    const pick = {
+      hitKind: 2,
+      hitId: "0",
+      hitX: (nodeA.x + nodeB.x) * 0.5,
+      hitY: (nodeA.y + nodeB.y) * 0.5,
+      hitZ: (nodeA.z + nodeB.z) * 0.5,
+      hasSegmentEndpoints: true,
+      segmentNodeAId: edge.nodeAId,
+      segmentNodeBId: edge.nodeBId,
+      segmentEndpointAX: nodeA.x,
+      segmentEndpointAY: nodeA.y,
+      segmentEndpointAZ: nodeA.z,
+      segmentEndpointBX: nodeB.x,
+      segmentEndpointBY: nodeB.y,
+      segmentEndpointBZ: nodeB.z
+    };
+    const resolved = runState.resolveBundleVariationBranchPick(
+      pick, generated.variationId!
+    );
+    expect(resolved.ok, resolved.error).toBe(true);
+    expect(resolved.supportKind).toBe(1);
+    runState.delete();
+  });
+
+  it("routes variation interval branch picks through the Core-owned live scope", async () => {
+    const bridge = await WireBridge.create();
+    const rules = [{
+      bundleTemplateId: 104, minInstances: 1, maxInstances: 1,
+      conductorCount: 1, heightMin: 5.2, heightMax: 5.2,
+      lateralAbsMin: 0.25, lateralAbsMax: 0.25
+    }, {
+      bundleTemplateId: 101, minInstances: 0, maxInstances: 0,
+      conductorCount: 3, heightMin: 9.2, heightMax: 9.2,
+      lateralAbsMin: 0.2, lateralAbsMax: 0.2
+    }];
+    const first = bridge.generateWireInterval({
+      points: [[0, 0, 0], [12, 0, 0]],
+      pointSpecs: [null, null],
+      bundlePlacements: [],
+      intervalM: 0,
+      poleTypeId: 2,
+      directionMode: 0,
+      maxTiltDeg: 0,
+      variationRules: rules,
+      routeSeed: 88802,
+      preferredSideSign: -1
+    });
+    expect(first.ok, first.error).toBe(true);
+    const scene = bridge.scene();
+    const edge = scene.backboneEdges[0];
+    const nodeA = scene.supportNodes.find((node) => node.id === edge.nodeAId)!;
+    const nodeB = scene.supportNodes.find((node) => node.id === edge.nodeBId)!;
+    const midpoint: [number, number, number] = [
+      (nodeA.x + nodeB.x) * 0.5,
+      (nodeA.y + nodeB.y) * 0.5,
+      (nodeA.z + nodeB.z) * 0.5
+    ];
+    const before = bridge.saveState();
+    const preview = bridge.previewWireInterval({
+      points: [[0, 8, 0], midpoint],
+      pointSpecs: [null, null],
+      targetPick: {
+        hitKind: 2,
+        hitId: "0",
+        hitX: midpoint[0], hitY: midpoint[1], hitZ: midpoint[2],
+        hasSegmentEndpoints: true,
+        segmentNodeAId: edge.nodeAId,
+        segmentNodeBId: edge.nodeBId,
+        segmentEndpointAX: nodeA.x,
+        segmentEndpointAY: nodeA.y,
+        segmentEndpointAZ: nodeA.z,
+        segmentEndpointBX: nodeB.x,
+        segmentEndpointBY: nodeB.y,
+        segmentEndpointBZ: nodeB.z
+      },
+      bundlePlacements: [],
+      intervalM: 0,
+      poleTypeId: 2,
+      directionMode: 0,
+      maxTiltDeg: 0,
+      variationId: first.variationId
+    });
+    expect(preview.ok, preview.error).toBe(true);
+    expect(bridge.saveState()).toBe(before);
+  });
+
+  it("does not invent a variation scope for a manually generated Bundle", () => {
+    const runState = createState();
+    const generated = runState.generatePlacements(
+      new Float64Array([0, 0, 0, 12, 0, 0]),
+      [{ id: 1, bundleTemplateId: 102, count: 1, explicit: true,
+        height: 7.4, offset: -0.25, spacing: 0.2 }],
+      0, 1, 0, 0, []
+    );
+    expect(generated.ok, generated.error).toBe(true);
+    expect(runState.backboneBundleVariationForBundle(generated.generatedBundleIds![0]))
+      .toMatchObject({ ok: true, found: false });
+    runState.delete();
+  });
+
+  it("keeps surviving placement identity through a 2 to 4 to 2 density cycle", () => {
+    const runState = createState();
+    const rule = (count: number) => [{
+      bundleTemplateId: 104,
+      minInstances: count,
+      maxInstances: count,
+      conductorCount: 1,
+      heightMin: 5.0,
+      heightMax: 6.0,
+      lateralAbsMin: 0.15,
+      lateralAbsMax: 0.9,
+    }];
+    const generated = runState.generateBundleVariation(
+      new Float64Array([0, 0, 0, 16, 0, 0]), rule(2), 884422, -1,
+      0, 2, 0, 0, []
+    );
+    expect(generated.ok, generated.error).toBe(true);
+    const initial = runState.backboneBundleVariation(generated.variationId!);
+    expect(initial.instances).toHaveLength(2);
+    const initialByKey = new Map(initial.instances!.map((item) =>
+      [item.placementKey, item.bundleId]
+    ));
+
+    const denser = runState.applyBackboneBundleVariation(
+      generated.variationId!, rule(4), 884422, -1, 2
+    );
+    expect(denser.ok, denser.error).toBe(true);
+    const four = runState.backboneBundleVariation(generated.variationId!);
+    expect(four.instances).toHaveLength(4);
+    for (const [key, bundleId] of initialByKey) {
+      expect(four.instances!.find((item) => item.placementKey === key)?.bundleId).toBe(bundleId);
+    }
+
+    const sparser = runState.applyBackboneBundleVariation(
+      generated.variationId!, rule(2), 884422, -1, 2
+    );
+    expect(sparser.ok, sparser.error).toBe(true);
+    const final = runState.backboneBundleVariation(generated.variationId!);
+    expect(final.instances).toHaveLength(2);
+    expect(new Map(final.instances!.map((item) => [item.placementKey, item.bundleId])))
+      .toEqual(initialByKey);
+
+    const rerolled = runState.applyBackboneBundleVariation(
+      generated.variationId!, rule(2), 884423, -1, 2
+    );
+    expect(rerolled.ok, rerolled.error).toBe(true);
+    const rerolledInfo = runState.backboneBundleVariation(generated.variationId!);
+    expect(rerolledInfo.routeSeed).toBe(884423);
+    expect(rerolledInfo.instances!.map((item) => item.placementKey))
+      .not.toEqual(initial.instances!.map((item) => item.placementKey));
+    runState.delete();
+  });
+
+  it("rejects initial zero to one variation Apply without changing descriptor or topology", () => {
+    const runState = createState();
+    const initialRules = [
+      {
+        bundleTemplateId: 102, minInstances: 1, maxInstances: 1,
+        conductorCount: 1, heightMin: 7.2, heightMax: 7.2,
+        lateralAbsMin: 0.25, lateralAbsMax: 0.25
+      },
+      {
+        bundleTemplateId: 105, minInstances: 0, maxInstances: 0,
+        conductorCount: 1, heightMin: 5.1, heightMax: 5.1,
+        lateralAbsMin: 0.25, lateralAbsMax: 0.25
+      }
+    ];
+    const generated = runState.generateBundleVariation(
+      new Float64Array([0, 0, 0, 12, 0, 0]), initialRules, 7001, -1,
+      0, 1, 0, 0, []
+    );
+    expect(generated.ok, generated.error).toBe(true);
+    const before = runState.saveState();
+    const requested = [initialRules[0], { ...initialRules[1], minInstances: 1, maxInstances: 1 }];
+
+    const rejected = runState.applyBackboneBundleVariation(
+      generated.variationId!, requested, 7001, -1, 1
+    );
+
+    expect(rejected.ok).toBe(false);
+    expect(rejected.error).toContain("zero-instance variation");
+    expect(runState.saveState()).toBe(before);
+    expect(runState.backboneBundleVariation(generated.variationId!).rules).toEqual(initialRules);
+    runState.delete();
+  });
+
+  it("keeps non-Auto final viewer samples on the resolved sag parabola", () => {
     const runState = createState();
     const bundleTemplate = Array.from({ length: runState.bundleTemplateCount() }, (_, index) =>
       runState.bundleTemplate(index)
@@ -508,10 +870,16 @@ describe("wire wasm smoke", () => {
     const end = endPoint(body);
     expect(end[0] - start[0]).toBe(20);
     expect(end[2]).toBe(start[2]);
+    const anchorU = 1 / (pointCount - 1);
+    const anchorChordZ = start[2] + (end[2] - start[2]) * anchorU;
+    const resolvedSag = (anchorChordZ - body.samples[5]) /
+      (4 * anchorU * (1 - anchorU));
+    expect(resolvedSag).toBeGreaterThanOrEqual(0.44);
+    expect(resolvedSag).toBeLessThanOrEqual(0.56);
     for (let index = 0; index < pointCount; index += 1) {
       const u = index / (pointCount - 1);
       const chordZ = start[2] + (end[2] - start[2]) * u;
-      const expectedZ = chordZ - 0.5 * 4 * u * (1 - u);
+      const expectedZ = chordZ - resolvedSag * 4 * u * (1 - u);
       expect(Math.abs(body.samples[index * 3 + 2] - expectedZ),
         `viewer sample ${index} at u=${u}`).toBeLessThanOrEqual(1e-12);
     }
@@ -1706,7 +2074,7 @@ describe("wire wasm smoke", () => {
     }));
 
     const text = savedState.saveState();
-    expect(text.startsWith("wire_state_v4\n")).toBe(true);
+    expect(text.startsWith("wire_state_v6\n")).toBe(true);
     const loadedState = createState();
     const loaded = loadedState.loadState(text);
     expect(loaded.ok, loaded.error).toBe(true);

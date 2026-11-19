@@ -253,6 +253,9 @@ void CoreState::register_default_bundle_templates() {
   comm.enable_branch_down_offset = false;
   comm.branch_endpoint_offset_m = 0.0;
   comm.order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
+  comm.span_visual_assembly.endpoint_trim_m = 1.2;
+  comm.span_visual_assembly.visual_member_count = 3;
+  comm.span_visual_assembly.visual_member_spacing_m = 0.018;
   authoritative_.bundle_templates[comm.id] = comm;
 
   BundleTemplate optical{};
@@ -282,9 +285,9 @@ void CoreState::register_default_bundle_templates() {
   optical.span_visual_assembly.support_path_enabled = true;
   optical.span_visual_assembly.helix_enabled = true;
   optical.span_visual_assembly.helix_clearance_m = 0.015;
-  optical.span_visual_assembly.helix_turns_per_meter = 1.8;
-  optical.span_visual_assembly.helix_samples_per_turn = 6;
   optical.span_visual_assembly.endpoint_trim_m = 1.05;
+  optical.span_visual_assembly.visual_member_count = 2;
+  optical.span_visual_assembly.visual_member_spacing_m = 0.014;
   authoritative_.bundle_templates[optical.id] = optical;
 }
 

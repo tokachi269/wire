@@ -1,47 +1,29 @@
-# Wire supported operations
+# Wireの対応操作
 
-This document is the support boundary for explicit Wire commit attempts. The
-pointer guide does not run backbone generation, model assembly, or scene output.
+この文書は、明示的なWire確定操作の対応範囲を定める。ポインターのガイドでは、backboneの生成、model assemblyの生成、sceneへの出力を実行しない。
 
-## Normal drawing fixtures
+## 通常描画で対応する構成
 
-Supported normal workflows include a new isolated route, extension from the
-last generated endpoint, a new independent route after ending a session,
-explicit pole endpoint reuse, supported midair branch picks, T/cross generation,
-and model-aware multi-bundle generation. A completed route does not retain
-transient anchor, preview, or pending support state.
+通常の操作では、新しい独立route、最後に生成した終点からの延長、session終了後の新しい独立route、明示的なPole終点の再利用、対応済みmidair branch pick、T字・十字の生成、モデルを含む複数のBundleの生成に対応する。routeの完了後は、一時的なanchor、プレビュー、保留中の支持物の状態を残さない。
 
-The real WASM regression fixture creates twelve independent model-aware routes,
-each with two committed intervals, and verifies preview atomicity and final
-scene output. ViewerActions separately exercises repeated Click, Enter, Escape,
-and tool-switch sessions.
+実WASMの回帰fixtureは、モデルを含む独立した12本のrouteを作り、それぞれ2区間を確定する。プレビューの原子性と最終的なsceneの出力を検証する。ViewerActionsでは別途、Click、Enter、Escapeの繰り返しと、toolを切り替えるsessionを検証する。
 
-## Requirement constraints
+## 製品要件による制約
 
-`RequirementConstraint` is limited to explicit template or topology policy,
-such as a bundle template that disallows a requested midair branch. A stale row,
-missing model fixture, unresolved saved binding, or session state mismatch is
-not a requirement constraint.
+`RequirementConstraint`に分類するのは、要求されたmidair branchをBundleテンプレートが禁止する場合など、明示的なテンプレート方針またはtopology方針に限る。古いrow、モデルのfixtureの欠落、解決できない保存binding、session状態の不一致は、製品要件による制約ではない。
 
-## Failure ownership
+## 失敗時の責務
 
-| Owner | Input condition | Category | Normal draw impact |
+分類と理由コードの意味は[確定操作の失敗分類](../editor/commit_failure_categories.md)を正本とする。Coreは`core_edit_types.hpp`の`ClassifyCommitFailure`で分類し、未知のerrorは`InternalError`とする。下表では、描画操作の境界ごとに、失敗の判定を担う処理を示す。
+
+| 担当 | 入力条件 | 分類 | 通常描画への影響 |
 |---|---|---|---|
-| anchor/request validation | missing target ID, non-finite point, endpoint equal to anchor | `InvalidInput` | shown only for explicit Click or Enter |
-| template policy | explicitly disallowed midair node/branch or topology policy | `RequirementConstraint` | use an allowed template or target |
-| topology/layout resolver | meaningful topology not implemented | `NotImplemented` | implementation backlog, not invalid input |
-| draw session | referenced anchor/version became stale | `StateConflict` | refresh anchor and retry |
-| backbone/model assembly | saved binding, row, fixture, or generated endpoint violates an invariant | `InternalError` | supported-path defect |
+| anchor・要求の検証 | 対象IDの欠落、非有限値の点、anchorと同じ終点 | `InvalidInput` | 明示的なClickまたはEnter時だけ表示する |
+| テンプレート方針 | midair node/branchやtopology方針による明示的な禁止 | `RequirementConstraint` | 許可されたテンプレートまたは対象を使う |
+| topology/layoutの解決 | 意味のあるtopologyだが未実装 | `NotImplemented` | 入力不正ではなく、実装の保留事項として扱う |
+| 描画session | 参照するanchorやバージョンが古くなった | `StateConflict` | anchorを更新して再試行する |
+| backbone/model assembly | 保存binding、row、fixture、生成endpointが不変条件に違反した | `InternalError` | 対応済み経路の不具合として扱う |
 
-The former repeated-route failure was an `InternalError`: local generation
-context replaced the connected endpoint row frame, after which model assembly
-reported inconsistent fixture data. Endpoint context is now preserved, and the
-model-aware repeated-route fixture prevents recurrence.
+## 描画sessionの動作
 
-## Session behavior
-
-The first Click accepts an anchor. The next Click commits one interval and keeps
-its resolved endpoint as the continuation anchor. Enter commits the displayed
-guide and ends the session. Escape discards only transient state. Tool switching
-ends the previous transient session. Every primary action returns an explicit
-outcome; a drawable click is never silently ignored.
+最初のClickでanchorを受理する。次のClickで1区間を確定し、解決済みの終点を継続anchorとして保持する。Enterは表示中のガイドを確定してsessionを終了する。Escapeは一時状態だけを破棄する。toolを切り替えると、その時点の一時的なsessionを終了する。描画可能なClickを無視せず、全ての主操作で結果を明示して返す。

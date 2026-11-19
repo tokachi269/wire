@@ -500,6 +500,48 @@ public:
                           direction_mode, max_tilt_deg, node_specs, false);
   }
 
+  val generate_bundle_variation(const val& flat_points, const val& rules, double route_seed,
+                                int preferred_side_sign, double interval_m, int pole_type_id,
+                                int direction_mode, double max_tilt_deg,
+                                const val& node_specs = val::undefined()) {
+    return run_placements(*state_, flat_points, val::array(), interval_m, pole_type_id,
+                          direction_mode, max_tilt_deg, node_specs, false,
+                          rules, route_seed, preferred_side_sign);
+  }
+
+  val extend_bundle_variation(const std::string& variation_id, const val& flat_points,
+                              double interval_m,
+                              int pole_type_id, int direction_mode, double max_tilt_deg,
+                              const val& node_specs = val::undefined()) {
+    return run_placements(*state_, flat_points, val::array(), interval_m, pole_type_id,
+                          direction_mode, max_tilt_deg, node_specs, false,
+                          val::undefined(), 0.0, 0,
+                          static_cast<ObjectId>(std::stoull(variation_id)));
+  }
+
+  val preview_bundle_variation(const val& flat_points, const val& rules,
+                               double route_seed, int preferred_side_sign,
+                               double interval_m, int pole_type_id,
+                               int direction_mode, double max_tilt_deg,
+                               const val& node_specs = val::undefined()) {
+    CoreState trial = *state_;
+    return run_placements(trial, flat_points, val::array(), interval_m,
+                          pole_type_id, direction_mode, max_tilt_deg,
+                          node_specs, true, rules, route_seed,
+                          preferred_side_sign);
+  }
+
+  val preview_extend_bundle_variation(
+      const std::string& variation_id, const val& flat_points,
+      double interval_m, int pole_type_id, int direction_mode,
+      double max_tilt_deg, const val& node_specs = val::undefined()) {
+    CoreState trial = *state_;
+    return run_placements(
+        trial, flat_points, val::array(), interval_m, pole_type_id,
+        direction_mode, max_tilt_deg, node_specs, true, val::undefined(), 0.0,
+        0, static_cast<ObjectId>(std::stoull(variation_id)));
+  }
+
   val preview_placements(const val& flat_points, const val& bundle_placements, double interval_m,
                          int pole_type_id, int direction_mode, double max_tilt_deg,
                          const val& node_specs = val::undefined()) {
@@ -517,10 +559,20 @@ public:
     return resolve_branch_pick_on(trial, input, selected_bundle_template_ids);
   }
 
+  val resolve_bundle_variation_branch_pick(
+      const val& input, const std::string& variation_id) {
+    return resolve_branch_pick_on(
+        *state_, input, val::array(),
+        static_cast<ObjectId>(std::stoull(variation_id)));
+  }
+
 private:
   val run_placements(CoreState& target, const val& flat_points, const val& bundle_placements,
                      double interval_m, int pole_type_id, int direction_mode, double max_tilt_deg,
-                     const val& node_specs, bool include_preview_scene) {
+                     const val& node_specs, bool include_preview_scene,
+                     const val& variation_rules = val::undefined(), double route_seed = 0.0,
+                     int preferred_side_sign = 0,
+                     ObjectId variation_id = city::wire::kInvalidObjectId) {
     const std::size_t value_count = flat_points["length"].as<std::size_t>();
     if (value_count % 3 != 0) {
       return result_value(false, "point array length must be divisible by 3");
@@ -553,8 +605,10 @@ private:
     spec.pole_placement.enable_tilt = max_tilt_deg > 0.0;
     spec.pole_placement.max_tilt_deg = max_tilt_deg;
 
+    const bool generate_variation = !variation_rules.isUndefined() && !variation_rules.isNull();
     const std::size_t bundle_count = bundle_placements["length"].as<std::size_t>();
-    if (bundle_count == 0) {
+    if (bundle_count == 0 && !generate_variation &&
+        variation_id == city::wire::kInvalidObjectId) {
       return result_value(false, "backbone unsupported: bundle placements must be non-empty");
     }
     for (std::size_t index = 0; index < bundle_count; ++index) {
@@ -584,12 +638,49 @@ private:
         const std::string value = generated_bundle_id.as<std::string>();
         if (!value.empty() && value != "0") {
           bundle.source_bundle_id = static_cast<ObjectId>(std::stoull(value));
+          if (variation_id != city::wire::kInvalidObjectId) {
+            bundle.existing_bundle_id = bundle.source_bundle_id;
+          }
         }
       }
       spec.bundles.push_back(bundle);
     }
 
-    const auto generated = target.GenerateFromBackboneSpec(spec);
+    city::wire::EditResult<city::wire::GenerateBundleFromPathResult> generated{};
+    ObjectId resolved_variation_id = variation_id;
+    if (generate_variation) {
+      city::wire::RouteBundleVariationInput descriptor{};
+      descriptor.route_seed = static_cast<std::uint64_t>(route_seed);
+      descriptor.preferred_side_sign = preferred_side_sign;
+      descriptor.pole_type_id = static_cast<PoleTypeId>(pole_type_id);
+      const std::size_t rule_count = variation_rules["length"].as<std::size_t>();
+      descriptor.rules.reserve(rule_count);
+      for (std::size_t index = 0; index < rule_count; ++index) {
+        const val item = variation_rules[index];
+        city::wire::RandomBackboneBundleRule rule{};
+        rule.bundle_template_id = ::bundle_template_id(property<int>(item, "bundleTemplateId"));
+        rule.min_instances = property<int>(item, "minInstances");
+        rule.max_instances = property<int>(item, "maxInstances");
+        rule.conductor_count = property<int>(item, "conductorCount");
+        rule.height_min_m = property<double>(item, "heightMin");
+        rule.height_max_m = property<double>(item, "heightMax");
+        rule.lateral_abs_min_m = property<double>(item, "lateralAbsMin");
+        rule.lateral_abs_max_m = property<double>(item, "lateralAbsMax");
+        descriptor.rules.push_back(rule);
+      }
+      const auto variation = target.GenerateBackboneBundleVariation(spec, descriptor);
+      generated.ok = variation.ok;
+      generated.error = variation.error;
+      generated.failure_category = variation.failure_category;
+      generated.reason_code = variation.reason_code;
+      generated.change_set = variation.change_set;
+      generated.value = variation.value.generation;
+      resolved_variation_id = variation.value.variation_id;
+    } else if (variation_id != city::wire::kInvalidObjectId) {
+      generated = target.ExtendBackboneBundleVariation(variation_id, spec);
+    } else {
+      generated = target.GenerateFromBackboneSpec(spec);
+    }
     val result = result_value(generated.ok, generated.error,
                               generated.effective_failure_category(), generated.reason_code);
     result.set("generatedPoleCount", generated.value.generated_pole_ids.size());
@@ -614,6 +705,9 @@ private:
       generated_span_ids.set(index, std::to_string(generated.value.generated_span_ids[index]));
     }
     result.set("generatedSpanIds", generated_span_ids);
+    if (resolved_variation_id != city::wire::kInvalidObjectId) {
+      result.set("variationId", std::to_string(resolved_variation_id));
+    }
     result.set("totalMs", generated.value.timing.total_ms);
     result.set("timing", generation_timing_value(generated.value.timing));
     if (include_preview_scene && generated.ok) {
@@ -633,7 +727,10 @@ private:
     return result;
   }
 
-  val resolve_branch_pick_on(CoreState& target, const val& input, const val& selected_bundle_template_ids) {
+  val resolve_branch_pick_on(
+      CoreState& target, const val& input,
+      const val& selected_bundle_template_ids,
+      ObjectId variation_id = city::wire::kInvalidObjectId) {
     PickResult pick{};
     pick.hit_kind = static_cast<PickHitKind>(property<int>(input, "hitKind"));
     const std::string hit_id = property<std::string>(input, "hitId");
@@ -677,7 +774,10 @@ private:
       }
     }
 
-    const auto resolved = target.ResolveBranchPick(pick, options);
+    const auto resolved = variation_id == city::wire::kInvalidObjectId
+                              ? target.ResolveBranchPick(pick, options)
+                              : target.ResolveBackboneBundleVariationBranchPick(
+                                    variation_id, pick);
     val output = result_value(resolved.ok, resolved.error,
                               resolved.effective_failure_category(), resolved.reason_code);
     output.set("positionX", resolved.value.position.x);
@@ -741,6 +841,8 @@ private:
                     std::to_string(part.section_key.edge_bundle_id) + ":" +
                     std::to_string(part.section_key.rule_owner_id) + ":" + std::to_string(part.section_key.rule_id) +
                     ":" + std::to_string(part.section_key.instance_index);
+      } else if (part.section_count > 1) {
+        part_key += ":m:" + std::to_string(part.section_key.instance_index);
       }
       for (ObjectId edge_id : part.incident_edge_ids) {
         part_key += ":e:" + std::to_string(edge_id);
@@ -762,6 +864,7 @@ private:
       output.set("bundleTemplateId", static_cast<int>(part.bundle_template_id));
       output.set("laneIndex", part.lane_index);
       output.set("runId", static_cast<double>(part.cable_run_id));
+      output.set("resolvedHelixRadius", part.resolved_helix_radius_m);
       descriptors.set(descriptor_index++, output);
     }
     val result = val::object();
@@ -860,6 +963,7 @@ public:
     output.set("id", std::to_string(span->id));
     output.set("portAId", std::to_string(span->port_a_id));
     output.set("portBId", std::to_string(span->port_b_id));
+    output.set("bundleId", std::to_string(span->bundle_id));
     return output;
   }
 
@@ -990,32 +1094,10 @@ public:
     assembly_output.set("helixEnabled", assembly.helix_enabled);
     assembly_output.set("helixRadius", assembly.helix_radius_m);
     assembly_output.set("helixClearance", assembly.helix_clearance_m);
-    assembly_output.set("helixTurnsPerMeter", assembly.helix_turns_per_meter);
-    assembly_output.set("helixSamplesPerTurn", assembly.helix_samples_per_turn);
     assembly_output.set("endpointTrim", assembly.endpoint_trim_m);
-    assembly_output.set("memberWanderRatio", assembly.member_wander_ratio);
-    assembly_output.set("memberWanderWavelength", assembly.member_wander_wavelength_m);
-    assembly_output.set("memberWanderPhaseBias", assembly.member_wander_phase_bias);
-    assembly_output.set("memberTwistTurnsPerMeter", assembly.member_twist_turns_per_meter);
-    assembly_output.set("memberTwistPhase", assembly.member_twist_phase);
+    assembly_output.set("visualMemberCount", assembly.visual_member_count);
+    assembly_output.set("visualMemberSpacing", assembly.visual_member_spacing_m);
     output.set("spanVisualAssembly", assembly_output);
-    val population_rules = val::array();
-    for (std::size_t index = 0; index < bundle_template.population_rules.size(); ++index) {
-      const auto& rule = bundle_template.population_rules[index];
-      val item = val::object();
-      item.set("ruleId", static_cast<double>(rule.rule_id));
-      item.set("explicitSeed", static_cast<double>(rule.explicit_seed));
-      item.set("priority", rule.priority);
-      item.set("minExtraCount", rule.min_extra_count);
-      item.set("maxExtraCount", rule.max_extra_count);
-      item.set("minSpacing", rule.min_spacing_m);
-      item.set("lateralMin", rule.lateral_min_m);
-      item.set("lateralMax", rule.lateral_max_m);
-      item.set("heightMin", rule.height_min_m);
-      item.set("heightMax", rule.height_max_m);
-      population_rules.set(index, item);
-    }
-    output.set("populationRules", population_rules);
     return output;
   }
 
@@ -1048,41 +1130,11 @@ public:
     bundle_template.span_visual_assembly.helix_enabled = property<bool>(assembly, "helixEnabled");
     bundle_template.span_visual_assembly.helix_radius_m = property<double>(assembly, "helixRadius");
     bundle_template.span_visual_assembly.helix_clearance_m = property<double>(assembly, "helixClearance");
-    bundle_template.span_visual_assembly.helix_turns_per_meter = property<double>(assembly, "helixTurnsPerMeter");
-    bundle_template.span_visual_assembly.helix_samples_per_turn = property<int>(assembly, "helixSamplesPerTurn");
     bundle_template.span_visual_assembly.endpoint_trim_m = property<double>(assembly, "endpointTrim");
-    bundle_template.span_visual_assembly.member_wander_ratio = property<double>(assembly, "memberWanderRatio");
-    bundle_template.span_visual_assembly.member_wander_wavelength_m = property<double>(assembly, "memberWanderWavelength");
-    bundle_template.span_visual_assembly.member_wander_phase_bias = property<double>(assembly, "memberWanderPhaseBias");
-    bundle_template.span_visual_assembly.member_twist_turns_per_meter = property<double>(assembly, "memberTwistTurnsPerMeter");
-    bundle_template.span_visual_assembly.member_twist_phase = property<double>(assembly, "memberTwistPhase");
-    const std::vector<city::wire::CablePopulationRule> existing_population_rules =
-        bundle_template.population_rules;
-    bundle_template.population_rules.clear();
-    const val population_rules = input["populationRules"];
-    const std::size_t population_rule_count = population_rules["length"].as<std::size_t>();
-    bundle_template.population_rules.reserve(population_rule_count);
-    for (std::size_t index = 0; index < population_rule_count; ++index) {
-      const val item = population_rules[index];
-      const city::wire::CableSectionRuleId rule_id =
-          property<city::wire::CableSectionRuleId>(item, "ruleId");
-      const auto existing_rule = std::ranges::find_if(
-          existing_population_rules,
-          [rule_id](const city::wire::CablePopulationRule& rule) { return rule.rule_id == rule_id; });
-      city::wire::CablePopulationRule rule =
-          existing_rule == existing_population_rules.end() ? city::wire::CablePopulationRule{} : *existing_rule;
-      rule.rule_id = rule_id;
-      rule.explicit_seed = property<std::uint64_t>(item, "explicitSeed");
-      rule.priority = property<int>(item, "priority");
-      rule.min_extra_count = property<int>(item, "minExtraCount");
-      rule.max_extra_count = property<int>(item, "maxExtraCount");
-      rule.min_spacing_m = property<double>(item, "minSpacing");
-      rule.lateral_min_m = property<double>(item, "lateralMin");
-      rule.lateral_max_m = property<double>(item, "lateralMax");
-      rule.height_min_m = property<double>(item, "heightMin");
-      rule.height_max_m = property<double>(item, "heightMax");
-      bundle_template.population_rules.push_back(rule);
-    }
+    bundle_template.span_visual_assembly.visual_member_count =
+        property<int>(assembly, "visualMemberCount");
+    bundle_template.span_visual_assembly.visual_member_spacing_m =
+        property<double>(assembly, "visualMemberSpacing");
     const auto updated = state_->UpdateBundleTemplate(bundle_template);
     return result_value(updated.ok, updated.error);
   }
@@ -1104,6 +1156,55 @@ public:
     output.set("offset", resolved.ok ? resolved.value.lateral_m : 0.0);
     output.set("spacing", resolved.ok ? resolved.value.spacing_m : 0.0);
     return output;
+  }
+
+  val resolve_route_bundle_variation(const val& rules, double route_seed,
+                                     int preferred_side_sign, int pole_type_id) const {
+    const city::wire::RouteBundleVariationInput input = variation_input(
+        rules, route_seed, preferred_side_sign, pole_type_id);
+    const auto resolved = state_->ResolveRouteBundleVariation(input);
+    val output = result_value(resolved.ok, resolved.error,
+                              resolved.effective_failure_category(), resolved.reason_code);
+    val placements = val::array();
+    for (std::size_t index = 0; index < resolved.value.size(); ++index) {
+      const BackboneBundleSpec& spec = resolved.value[index];
+      val placement = val::object();
+      placement.set("id", static_cast<double>(spec.placement_key));
+      placement.set("bundleTemplateId", static_cast<int>(spec.bundle_template_id));
+      placement.set("count", spec.count);
+      placement.set("explicit", spec.placement_explicit);
+      placement.set("height", spec.height_m);
+      placement.set("offset", spec.lateral_m);
+      placement.set("spacing", spec.spacing_m);
+      placements.set(index, placement);
+    }
+    output.set("placements", placements);
+    return output;
+  }
+
+  [[nodiscard]] val backbone_bundle_variation_for_bundle(
+      const std::string& bundle_id) const {
+    const auto* variation = CoreView(*state_).backbone_bundle_variation_for_bundle(
+        static_cast<ObjectId>(std::stoull(bundle_id)));
+    return variation_value(variation);
+  }
+
+  [[nodiscard]] val backbone_bundle_variation(
+      const std::string& variation_id) const {
+    const auto* variation = CoreView(*state_).backbone_bundle_variation(
+        static_cast<ObjectId>(std::stoull(variation_id)));
+    return variation_value(variation);
+  }
+
+  val apply_backbone_bundle_variation(const std::string& variation_id,
+                                      const val& rules, double route_seed,
+                                      int preferred_side_sign, int pole_type_id) {
+    const city::wire::RouteBundleVariationInput descriptor = variation_input(
+        rules, route_seed, preferred_side_sign, pole_type_id);
+    const auto applied = state_->ApplyBackboneBundleVariation(
+        static_cast<ObjectId>(std::stoull(variation_id)), descriptor);
+    return result_value(applied.ok, applied.error,
+                        applied.effective_failure_category(), applied.reason_code);
   }
 
   val update_backbone_bundle_placement(const std::string& bundle_id, const val& placement) {
@@ -1395,6 +1496,38 @@ public:
     return result_value(updated.ok, updated.error);
   }
 
+  [[nodiscard]] val variation_settings() const {
+    const auto& settings = CoreView(*state_).variation_settings();
+    val output = val::object();
+    output.set("enabled", settings.enabled);
+    output.set("globalSeed", static_cast<double>(settings.global_seed));
+    output.set("worldCellSize", settings.world_cell_size_m);
+    output.set("worldBiasScale", settings.world_bias_scale);
+    output.set("flowBiasScale", settings.flow_bias_scale);
+    output.set("poleDeltaScale", settings.pole_delta_scale);
+    output.set("localJitterScale", settings.local_jitter_scale);
+    output.set("sagVariationScale", settings.sag_variation_scale);
+    output.set("branchDownOffsetVariationScale",
+               settings.branch_down_offset_variation_scale);
+    return output;
+  }
+
+  val update_variation_settings(const val& input) {
+    city::wire::VariationSettings settings{};
+    settings.enabled = property<bool>(input, "enabled");
+    settings.global_seed = static_cast<std::uint64_t>(property<double>(input, "globalSeed"));
+    settings.world_cell_size_m = property<double>(input, "worldCellSize");
+    settings.world_bias_scale = property<double>(input, "worldBiasScale");
+    settings.flow_bias_scale = property<double>(input, "flowBiasScale");
+    settings.pole_delta_scale = property<double>(input, "poleDeltaScale");
+    settings.local_jitter_scale = property<double>(input, "localJitterScale");
+    settings.sag_variation_scale = property<double>(input, "sagVariationScale");
+    settings.branch_down_offset_variation_scale =
+        property<double>(input, "branchDownOffsetVariationScale");
+    const auto updated = state_->UpdateVariationSettings(settings, true);
+    return result_value(updated.ok, updated.error);
+  }
+
   val apply_pole_tilt(const val& pole_ids, double max_tilt_deg) {
     std::vector<city::wire::ObjectId> ids{};
     const std::size_t count = pole_ids["length"].as<std::size_t>();
@@ -1437,6 +1570,66 @@ public:
   }
 
 private:
+  [[nodiscard]] static city::wire::RouteBundleVariationInput variation_input(
+      const val& rules, double route_seed, int preferred_side_sign,
+      int pole_type_id) {
+    city::wire::RouteBundleVariationInput input{};
+    input.route_seed = static_cast<std::uint64_t>(route_seed);
+    input.preferred_side_sign = preferred_side_sign;
+    input.pole_type_id = static_cast<PoleTypeId>(pole_type_id);
+    const std::size_t rule_count = rules["length"].as<std::size_t>();
+    input.rules.reserve(rule_count);
+    for (std::size_t index = 0; index < rule_count; ++index) {
+      const val item = rules[index];
+      city::wire::RandomBackboneBundleRule rule{};
+      rule.bundle_template_id = ::bundle_template_id(property<int>(item, "bundleTemplateId"));
+      rule.min_instances = property<int>(item, "minInstances");
+      rule.max_instances = property<int>(item, "maxInstances");
+      rule.conductor_count = property<int>(item, "conductorCount");
+      rule.height_min_m = property<double>(item, "heightMin");
+      rule.height_max_m = property<double>(item, "heightMax");
+      rule.lateral_abs_min_m = property<double>(item, "lateralAbsMin");
+      rule.lateral_abs_max_m = property<double>(item, "lateralAbsMax");
+      input.rules.push_back(rule);
+    }
+    return input;
+  }
+
+  [[nodiscard]] static val variation_value(
+      const city::wire::SavedBackboneBundleVariation* variation) {
+    val output = result_value(true, {});
+    output.set("found", variation != nullptr);
+    if (variation == nullptr) return output;
+    output.set("variationId", std::to_string(variation->variation_id));
+    output.set("routeSeed", static_cast<double>(variation->descriptor.route_seed));
+    output.set("preferredSideSign", variation->descriptor.preferred_side_sign);
+    output.set("poleTypeId", static_cast<int>(variation->descriptor.pole_type_id));
+    val rules = val::array();
+    for (std::size_t index = 0; index < variation->descriptor.rules.size(); ++index) {
+      const auto& rule = variation->descriptor.rules[index];
+      val item = val::object();
+      item.set("bundleTemplateId", static_cast<int>(rule.bundle_template_id));
+      item.set("minInstances", rule.min_instances);
+      item.set("maxInstances", rule.max_instances);
+      item.set("conductorCount", rule.conductor_count);
+      item.set("heightMin", rule.height_min_m);
+      item.set("heightMax", rule.height_max_m);
+      item.set("lateralAbsMin", rule.lateral_abs_min_m);
+      item.set("lateralAbsMax", rule.lateral_abs_max_m);
+      rules.set(index, item);
+    }
+    output.set("rules", rules);
+    val instances = val::array();
+    for (std::size_t index = 0; index < variation->instances.size(); ++index) {
+      val item = val::object();
+      item.set("placementKey", static_cast<double>(variation->instances[index].placement_key));
+      item.set("bundleId", std::to_string(variation->instances[index].bundle_id));
+      instances.set(index, item);
+    }
+    output.set("instances", instances);
+    return output;
+  }
+
   std::unique_ptr<CoreState> state_;
   std::vector<double> sample_buffer_{};
 };
@@ -2319,9 +2512,15 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .constructor<>()
       .function("generate", &WireState::generate)
       .function("generatePlacements", &WireState::generate_placements)
+      .function("generateBundleVariation", &WireState::generate_bundle_variation)
+      .function("extendBundleVariation", &WireState::extend_bundle_variation)
+      .function("previewBundleVariation", &WireState::preview_bundle_variation)
+      .function("previewExtendBundleVariation", &WireState::preview_extend_bundle_variation)
       .function("previewPlacements", &WireState::preview_placements)
       .function("resolveBranchPick", &WireState::resolve_branch_pick)
       .function("previewResolveBranchPick", &WireState::preview_resolve_branch_pick)
+      .function("resolveBundleVariationBranchPick",
+                &WireState::resolve_bundle_variation_branch_pick)
       .function("clearPendingSupportNodes", &WireState::clear_pending_support_nodes)
       .function("lastGenerationTiming", &WireState::last_generation_timing)
       .function("visualScene", &WireState::visual_scene)
@@ -2346,6 +2545,10 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .function("updateBackboneBundlePlacement", &WireState::update_backbone_bundle_placement)
       .function("applyRelatedPoleType", &WireState::apply_related_pole_type)
       .function("resolveDefaultBundlePlacement", &WireState::resolve_default_bundle_placement)
+      .function("resolveRouteBundleVariation", &WireState::resolve_route_bundle_variation)
+      .function("backboneBundleVariationForBundle", &WireState::backbone_bundle_variation_for_bundle)
+      .function("backboneBundleVariation", &WireState::backbone_bundle_variation)
+      .function("applyBackboneBundleVariation", &WireState::apply_backbone_bundle_variation)
       .function("cableTemplateCount", &WireState::cable_template_count)
       .function("cableTemplate", &WireState::cable_template)
       .function("updateCableTemplate", &WireState::update_cable_template)
@@ -2358,6 +2561,8 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .function("updateLayoutSettings", &WireState::update_layout_settings)
       .function("visualSettings", &WireState::visual_settings)
       .function("updateVisualSettings", &WireState::update_visual_settings)
+      .function("variationSettings", &WireState::variation_settings)
+      .function("updateVariationSettings", &WireState::update_variation_settings)
       .function("applyPoleTilt", &WireState::apply_pole_tilt)
       .function("resetSpanReferenceLengths", &WireState::reset_span_reference_lengths)
       .function("saveState", &WireState::save_state)

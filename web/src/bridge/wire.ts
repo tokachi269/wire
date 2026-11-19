@@ -10,6 +10,9 @@ import {
 import type {
   BackboneEdgeInfo,
   BundlePlacement,
+  RandomBundleRule,
+  RouteBundleVariationResult,
+  BackboneBundleVariationInfo,
   BundleTemplateInfo,
   CableTemplateInfo,
   DefaultBundlePlacementInfo,
@@ -29,6 +32,7 @@ import type {
   VisualPartInfo,
   VisualModelInstanceInfo,
   VisualSettings,
+  VariationSettings,
   WireIntervalRequest,
   WireIntervalResult
 } from "../model";
@@ -154,18 +158,80 @@ export class WireBridge {
     return this.state.resolveBranchPick(input, selectedBundleTemplateIds);
   }
 
+  resolveBundleVariationBranchPick(
+    input: PathPickInfo,
+    variationId: string
+  ): ResolvedPathPointInfo {
+    return this.state.resolveBundleVariationBranchPick(input, variationId);
+  }
+
+  resolveRouteBundleVariation(
+    rules: RandomBundleRule[],
+    routeSeed: number,
+    preferredSideSign: number,
+    poleTypeId: number
+  ): RouteBundleVariationResult {
+    return this.state.resolveRouteBundleVariation(
+      rules, routeSeed, preferredSideSign, poleTypeId
+    );
+  }
+
+  generateBundleVariation(
+    points: Float64Array,
+    rules: RandomBundleRule[],
+    routeSeed: number,
+    preferredSideSign: number,
+    intervalM: number,
+    poleTypeId: number,
+    directionMode: number,
+    maxTiltDeg: number,
+    nodeSpecs: Array<{ pointIndex: number; supportKind: number; nodeId: string }> = []
+  ): EditResult {
+    return this.state.generateBundleVariation(
+      points, rules, routeSeed, preferredSideSign, intervalM, poleTypeId,
+      directionMode, maxTiltDeg, nodeSpecs
+    );
+  }
+
+  backboneBundleVariationForBundle(bundleId: string): BackboneBundleVariationInfo {
+    return this.state.backboneBundleVariationForBundle(bundleId);
+  }
+
+  backboneBundleVariation(variationId: string): BackboneBundleVariationInfo {
+    return this.state.backboneBundleVariation(variationId);
+  }
+
+  applyBackboneBundleVariation(
+    variationId: string,
+    rules: RandomBundleRule[],
+    routeSeed: number,
+    preferredSideSign: number,
+    poleTypeId: number
+  ): OperationResult {
+    return this.state.applyBackboneBundleVariation(
+      variationId, rules, routeSeed, preferredSideSign, poleTypeId
+    );
+  }
+
   previewWireInterval(input: WireIntervalRequest): WireIntervalPreview {
     const prepared = this.prepareWireInterval(input, true);
     if (!prepared.ok) return { ...prepared, parts: [], poles: [] };
-    const preview = this.state.previewPlacements(
-      prepared.points,
-      input.bundlePlacements,
-      input.intervalM,
-      input.poleTypeId,
-      input.directionMode,
-      input.maxTiltDeg,
-      prepared.nodeSpecs
-    );
+    const preview = input.variationId !== undefined
+      ? this.state.previewExtendBundleVariation(
+        input.variationId, prepared.points, input.intervalM, input.poleTypeId,
+        input.directionMode, input.maxTiltDeg, prepared.nodeSpecs
+      )
+      : input.variationRules !== undefined && input.routeSeed !== undefined
+        ? this.state.previewBundleVariation(
+          prepared.points, input.variationRules, input.routeSeed,
+          input.preferredSideSign ?? 0, input.intervalM, input.poleTypeId,
+          input.directionMode, input.maxTiltDeg, prepared.nodeSpecs
+        )
+        : this.state.previewPlacements(
+          prepared.points, input.bundlePlacements, input.intervalM,
+          input.poleTypeId, input.directionMode, input.maxTiltDeg,
+          prepared.nodeSpecs
+        );
     if (!preview.ok) {
       return {
         ...preview,
@@ -194,15 +260,23 @@ export class WireBridge {
   generateWireInterval(input: WireIntervalRequest): WireIntervalResult {
     const prepared = this.prepareWireInterval(input, false);
     if (!prepared.ok) return prepared;
-    const generated = this.state.generatePlacements(
-      prepared.points,
-      input.bundlePlacements,
-      input.intervalM,
-      input.poleTypeId,
-      input.directionMode,
-      input.maxTiltDeg,
-      prepared.nodeSpecs
-    );
+    const generated = input.variationId !== undefined
+      ? this.state.extendBundleVariation(
+        input.variationId, prepared.points, input.intervalM,
+        input.poleTypeId, input.directionMode,
+        input.maxTiltDeg, prepared.nodeSpecs
+      )
+      : input.variationRules !== undefined && input.routeSeed !== undefined
+        ? this.state.generateBundleVariation(
+          prepared.points, input.variationRules, input.routeSeed,
+          input.preferredSideSign ?? 0, input.intervalM, input.poleTypeId,
+          input.directionMode, input.maxTiltDeg, prepared.nodeSpecs
+        )
+        : this.state.generatePlacements(
+          prepared.points, input.bundlePlacements, input.intervalM,
+          input.poleTypeId, input.directionMode, input.maxTiltDeg,
+          prepared.nodeSpecs
+        );
     return {
       ...generated,
       endpoint: prepared.endpoint,
@@ -217,10 +291,16 @@ export class WireBridge {
     let endpoint = input.points[1];
     let endpointSpec = input.pointSpecs[1];
     if (input.targetPick !== undefined) {
-      const selected = [...new Set(input.bundlePlacements.map((placement) => placement.bundleTemplateId))];
-      const resolved = preview
-        ? this.state.previewResolveBranchPick(input.targetPick, selected)
-        : this.state.resolveBranchPick(input.targetPick, selected);
+      const selected = [...new Set(
+        input.bundlePlacements.map((placement) => placement.bundleTemplateId)
+      )];
+      const resolved = input.variationId !== undefined
+        ? this.state.resolveBundleVariationBranchPick(
+          input.targetPick, input.variationId
+        )
+        : preview
+          ? this.state.previewResolveBranchPick(input.targetPick, selected)
+          : this.state.resolveBranchPick(input.targetPick, selected);
       if (!resolved.ok) {
         return {
           ...emptyWireIntervalResult(endpoint, endpointSpec, resolved.error),
@@ -333,6 +413,14 @@ export class WireBridge {
 
   updateVisualSettings(settings: VisualSettings): OperationResult {
     return this.state.updateVisualSettings(settings);
+  }
+
+  variationSettings(): VariationSettings {
+    return this.state.variationSettings();
+  }
+
+  updateVariationSettings(settings: VariationSettings): OperationResult {
+    return this.state.updateVariationSettings(settings);
   }
 
   applyPoleTilt(poleIds: string[], maxTiltDeg: number): OperationResult {

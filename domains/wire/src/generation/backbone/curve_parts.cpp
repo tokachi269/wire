@@ -7,7 +7,6 @@
 #include "../../support/hash_mix.hpp"
 #include "out.hpp"
 #include "mount_graph.hpp"
-#include "population.hpp"
 #include "row_representation.hpp"
 #include "span_visual_assembly.hpp"
 #include "../../geometry/detail_curve_postprocess.hpp"
@@ -997,6 +996,10 @@ bool visual_part_less(const VisualCurvePart& a, const VisualCurvePart& b) {
   if (a.has_section_key && !same_cable_section(a.section_key, b.section_key)) {
     return section_key_less(a.section_key, b.section_key);
   }
+  if (!a.has_section_key && a.section_count > 1 &&
+      a.section_key.instance_index != b.section_key.instance_index) {
+    return a.section_key.instance_index < b.section_key.instance_index;
+  }
   if (a.cable_run_id != b.cable_run_id) {
     return a.cable_run_id < b.cable_run_id;
   }
@@ -1061,26 +1064,6 @@ VisualCurvePartCache merge_visual_changes(const CoreState& state, VisualCurvePar
       merged.diagnostics.end(),
       std::make_move_iterator(rebuilt.diagnostics.begin()),
       std::make_move_iterator(rebuilt.diagnostics.end()));
-  const auto population_is_affected = [&](const CablePopulationDiagnostic& diagnostic) {
-    return diagnostic.logical_span_id != kInvalidObjectId &&
-           changed_spans.contains(diagnostic.logical_span_id);
-  };
-  rebuilt.population_diagnostics.erase(
-      std::remove_if(rebuilt.population_diagnostics.begin(),
-                     rebuilt.population_diagnostics.end(),
-                     [&](const CablePopulationDiagnostic& diagnostic) {
-                       return !population_is_affected(diagnostic);
-                     }),
-      rebuilt.population_diagnostics.end());
-  merged.population_diagnostics.erase(
-      std::remove_if(merged.population_diagnostics.begin(),
-                     merged.population_diagnostics.end(),
-                     population_is_affected),
-      merged.population_diagnostics.end());
-  merged.population_diagnostics.insert(
-      merged.population_diagnostics.end(),
-      std::make_move_iterator(rebuilt.population_diagnostics.begin()),
-      std::make_move_iterator(rebuilt.population_diagnostics.end()));
   merged.stats = rebuilt.stats;
   sort_visual_parts(&merged);
   return merged;
@@ -1165,32 +1148,6 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
     section.end_source_projection = entry.end.source_projection;
     sections.push_back(section);
   }
-  CablePopulation population = make_cable_population(state, placed.entries);
-  out.population_diagnostics = std::move(population.diagnostics);
-  for (CableSectionLayout& extra : population.sections) {
-    const auto source = std::find_if(placed.entries.begin(), placed.entries.end(), [&](const SpanLayoutEntry& entry) {
-      return entry.span_id == extra.key.logical_span_id;
-    });
-    if (source == placed.entries.end()) {
-      continue;
-    }
-    visual_cable_section section{};
-    section.layout = std::move(extra);
-    section.start_node_id = source->start.endpoint_node_id;
-    section.end_node_id = source->end.endpoint_node_id;
-    const auto base_section =
-        std::find_if(sections.begin(), sections.end(), [&](const visual_cable_section& candidate) {
-          return candidate.layout.key.logical_span_id == section.layout.key.logical_span_id &&
-                 candidate.layout.key.is_base();
-        });
-    if (base_section != sections.end()) {
-      section.start_row_key = base_section->start_row_key;
-      section.end_row_key = base_section->end_row_key;
-      section.start_source_projection = base_section->start_source_projection;
-      section.end_source_projection = base_section->end_source_projection;
-    }
-    sections.push_back(std::move(section));
-  }
   out.stats.sections = sections.size();
 
   std::vector<curve_endpoint_ref> endpoints{};
@@ -1247,12 +1204,12 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
       source_curves.push_back(std::move(source_curve));
       section.source_curve_index = source_curve_index;
     }
-    const Vec3d start_away =
-        has_curve_tangent ? source_curves[source_curve_index].start_constraint.tangent_dir
-                          : safe_unit(chord, fallback_dir);
+    const Vec3d start_away = has_curve_tangent
+        ? source_curves[source_curve_index].EvaluateTangent(0.0)
+        : safe_unit(chord, fallback_dir);
     const Vec3d end_away = has_curve_tangent
-                              ? ScaleVec(source_curves[source_curve_index].end_constraint.tangent_dir, -1.0)
-                              : safe_unit(ScaleVec(chord, -1.0), ScaleVec(fallback_dir, -1.0));
+        ? ScaleVec(source_curves[source_curve_index].EvaluateTangent(1.0), -1.0)
+        : safe_unit(ScaleVec(chord, -1.0), ScaleVec(fallback_dir, -1.0));
 
     curve_endpoint_ref start{};
     start.section_key = entry.key;
@@ -1653,8 +1610,6 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
         entry.span_id,
         SpanVisualAssemblyEndpoints{entry.start.endpoint_world, entry.end.endpoint_world});
   }
-  apply_span_visual_assemblies(state, assembly_endpoints, &out);
-
   for (const curve_patch_spec& spec : patch_specs) {
     curve_boundary a_boundary{};
     curve_boundary b_boundary{};
@@ -1746,6 +1701,7 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
       emitted_jumper_ports.push_back(peer->port_id);
     }
   }
+  apply_span_visual_assemblies(state, assembly_endpoints, &out);
   append_pole_decoration_curves(state, endpoints, affected_nodes, &out);
   if (!changed_spans.empty()) {
     result.value = merge_visual_changes(

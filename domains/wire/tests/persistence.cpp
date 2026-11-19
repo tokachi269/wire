@@ -28,7 +28,7 @@ bool C750_authoritative_save_is_deterministic_and_changes_after_edit() {
   std::string repeated_save{};
   if (!make_roundtrip_source(&state, &first_save, nullptr)) return false;
   const auto saved = state.SerializeAuthoritative(&repeated_save);
-  if (!saved.ok || first_save.empty() || first_save.rfind("wire_state_v4\n", 0) != 0 ||
+  if (!saved.ok || first_save.empty() || first_save.rfind("wire_state_v6\n", 0) != 0 ||
       first_save != repeated_save) {
     return false;
   }
@@ -226,6 +226,15 @@ bool same_derived(const DerivedSnapshot& a, const DerivedSnapshot& b) {
   return true;
 }
 
+// Runtime versions and instrumentation are excluded by the persistence contract.
+bool same_derived_values(DerivedSnapshot a, DerivedSnapshot b) {
+  a.visual.stats = {};
+  b.visual.stats = {};
+  for (auto& part : a.visual.parts) part.source_version = 0;
+  for (auto& part : b.visual.parts) part.source_version = 0;
+  return same_derived(a, b);
+}
+
 city::wire::AttachmentTemplateId replace_attachment_template_id(const city::wire::CoreState& state) {
   for (const auto& [id, value] : state.view().attachment_templates()) {
     if (value.line_interaction_mode == city::wire::AttachmentLineInteractionMode::kReplaceWithInternalPath &&
@@ -328,12 +337,9 @@ bool make_roundtrip_source(city::wire::CoreState* state, std::string* saved, Der
   lv.support_wire_pole_band_id = 100;
   lv.span_visual_assembly.support_path_enabled = true;
   lv.span_visual_assembly.helix_enabled = true;
-  lv.span_visual_assembly.helix_turns_per_meter = 0.5;
-  lv.span_visual_assembly.helix_samples_per_turn = 12;
   lv.span_visual_assembly.endpoint_trim_m = 0.2;
-  lv.span_visual_assembly.member_wander_ratio = 0.6;
-  lv.span_visual_assembly.member_wander_wavelength_m = 3.0;
-  lv.span_visual_assembly.member_twist_turns_per_meter = 0.2;
+  lv.span_visual_assembly.visual_member_count = 3;
+  lv.span_visual_assembly.visual_member_spacing_m = 0.04;
   if (!state->UpdateBundleTemplate(lv).ok) return false;
   city::wire::CableTemplate cable = state->view().cable_templates().at(lv.cable_template_id);
   cable.default_endpoint_attachment_template_id = attachment_template_id;
@@ -395,13 +401,17 @@ bool make_roundtrip_source(city::wire::CoreState* state, std::string* saved, Der
 bool C751_authoritative_load_roundtrip_rederives_bit_exact_outputs() {
   city::wire::CoreState source;
   std::string saved{};
-  if (!make_roundtrip_source(&source, &saved, nullptr)) return false;
+  DerivedSnapshot source_output{};
+  WIRE_TEST_EXPECT_PRESENCE(make_roundtrip_source(&source, &saved, &source_output),
+                            "source roundtrip fixture failed");
   city::wire::CoreState first_load;
   const auto first_loaded = first_load.DeserializeAuthoritative(saved);
   WIRE_TEST_EXPECT_PRESENCE(first_loaded.ok, first_loaded.error);
   DerivedSnapshot before{};
   std::string canonical{};
-  if (!snapshot_derived(first_load, &before)) return false;
+  WIRE_TEST_EXPECT_PRESENCE(snapshot_derived(first_load, &before), "first load has no derived output");
+  WIRE_TEST_EXPECT_DIFFERENTIAL(same_derived_values(source_output, before),
+                                "first load changed source derived values");
   if (!first_load.SerializeAuthoritative(&canonical).ok) return false;
   city::wire::CoreState second_load;
   DerivedSnapshot after{};
@@ -453,108 +463,92 @@ bool C753_authoritative_load_continues_editing_without_id_collision() {
 
 bool C754_authoritative_load_rejects_invalid_text_without_mutation() {
   city::wire::CoreState state;
-  if (!state.GenerateFromBackboneSpec(backbone_tests::line_req(state)).ok) return false;
-  std::string saved{};
-  if (!state.SerializeAuthoritative(&saved).ok) return false;
+  const auto request = backbone_tests::line_req(state);
+  const auto generated = state.GenerateFromBackboneSpec(request);
+  WIRE_TEST_EXPECT_PRESENCE(generated.ok, generated.error);
+  WIRE_TEST_EXPECT_PRESENCE(!state.view().backbone().edges.empty(), "failed-load fixture has no edge");
+  const auto edge = state.view().backbone().edges.front();
+  city::wire::PickResult pick{};
+  pick.hit_kind = city::wire::PickHitKind::kSegment;
+  pick.hit_pos_world = {6.0, 0.0, 0.0};
+  pick.has_segment_endpoints = true;
+  pick.segment_node_a_id = edge.node_a;
+  pick.segment_node_b_id = edge.node_b;
+  pick.segment_endpoint_a_world = request.path.polyline.front();
+  pick.segment_endpoint_b_world = request.path.polyline.back();
+  city::wire::ResolveBranchPickOptions options{};
+  options.selected_bundle_template_ids = {city::wire::kDefaultLowVoltageBundleTemplateId};
+  const auto resolved = state.ResolveBranchPick(pick, options);
+  WIRE_TEST_EXPECT_PRESENCE(resolved.ok, resolved.error);
+  WIRE_TEST_EXPECT_PRESENCE(!city::wire::CoreStateTestHook::pending_support_nodes(state).empty(),
+                            "failed-load fixture must contain a pending branch");
+
+  city::wire::BackboneSpec branch = backbone_tests::line_req(state);
+  branch.path.polyline = {resolved.value.position, {6.0, 8.0, 0.0}};
+  city::wire::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  branch.path.node_specs = {node};
+  const auto retry = [&](city::wire::CoreState copy, std::string* saved,
+                         city::wire::ObjectId* next_pending) {
+    if (!copy.GenerateFromBackboneSpec(branch).ok || !copy.SerializeAuthoritative(saved).ok) return false;
+    copy.ClearPendingSupportNodes();
+    auto next_pick = pick;
+    next_pick.hit_pos_world = {3.0, 0.0, 0.0};
+    const auto next = copy.ResolveBranchPick(next_pick, options);
+    if (!next.ok) return false;
+    *next_pending = next.value.resolved_node_id;
+    return true;
+  };
+  std::string saved{}, expected_retry;
+  DerivedSnapshot before{};
+  city::wire::ObjectId expected_pending{};
+  WIRE_TEST_EXPECT_PRESENCE(state.SerializeAuthoritative(&saved).ok, "failed-load fixture save failed");
+  WIRE_TEST_EXPECT_PRESENCE(snapshot_derived(state, &before), "failed-load fixture has no derived output");
+  WIRE_TEST_EXPECT_PRESENCE(retry(state, &expected_retry, &expected_pending), "baseline branch retry failed");
   city::wire::CoreState valid_probe;
-  if (!valid_probe.DeserializeAuthoritative(saved).ok) return false;
+  WIRE_TEST_EXPECT_PRESENCE(valid_probe.DeserializeAuthoritative(saved).ok, "valid archive control failed");
+  // 保存済みの段を補完・振り直しする読込経路は別ルートの予約段を壊すため持たない (正本はstate_and_persistence.md)
+  const auto replaced_support_levels = [&](const std::string& value, bool all) {
+    const std::string key = ".support_level=";
+    std::string text = saved;
+    std::size_t at = text.find(key);
+    if (at == std::string::npos) return std::string{};
+    while (at != std::string::npos) {
+      const std::size_t value_begin = at + key.size();
+      text.replace(value_begin, text.find('\n', value_begin) - value_begin, value);
+      if (!all) break;
+      at = text.find(key, value_begin + value.size());
+    }
+    return text;
+  };
+  const std::string missing_support_levels = replaced_support_levels("-1", true);
+  const std::string ungrouped_lowered_row = replaced_support_levels("2", false);
+  WIRE_TEST_EXPECT_PRESENCE(!missing_support_levels.empty() && !ungrouped_lowered_row.empty(),
+                            "failed-load fixture has no saved support level fields");
   const std::vector<std::string> invalid = {
+      "wire_state_v4\n",
       "wire_state_v5\n",
       saved + "unknown.key=1\n",
-      saved.substr(0, saved.find_last_of('\n', saved.size() - 2) + 1)};
+      saved.substr(0, saved.find_last_of('\n', saved.size() - 2) + 1),
+      missing_support_levels,
+      ungrouped_lowered_row};
   for (const std::string& text : invalid) {
     const auto loaded = state.DeserializeAuthoritative(text);
+    WIRE_TEST_EXPECT_ANCHOR(!loaded.ok, "invalid load unexpectedly succeeded");
     std::string after{};
-    if (loaded.ok || !state.SerializeAuthoritative(&after).ok || after != saved) return false;
-  }
-  return true;
-}
-
-bool C799_authoritative_v1_load_migrates_row_continuity_to_current() {
-  std::string saved_v2{};
-  if (!backbone_tests::file_text(
-          backbone_tests::repo_root() / "domains" / "wire" / "tests" / "fixtures" /
-              "legacy_shared_pair_v2.txt",
-          &saved_v2) ||
-      saved_v2.rfind("wire_state_v2\n", 0) != 0) {
-    return false;
-  }
-
-  std::string legacy = "wire_state_v1\n" + saved_v2.substr(std::string("wire_state_v2\n").size());
-  std::string stripped{};
-  stripped.reserve(legacy.size());
-  for (std::size_t line_begin = 0; line_begin < legacy.size();) {
-    const std::size_t line_end = legacy.find('\n', line_begin);
-    if (line_end == std::string::npos) return false;
-    const std::string_view line(legacy.data() + line_begin, line_end - line_begin);
-    if (!line.starts_with("authoritative.backbone.row_continuities.")) {
-      stripped.append(line);
-      stripped.push_back('\n');
-    }
-    line_begin = line_end + 1;
-  }
-  if (stripped.find("authoritative.backbone.row_continuities.count=") != std::string::npos) {
-    return false;
-  }
-
-  city::wire::CoreState loaded;
-  if (!loaded.DeserializeAuthoritative(stripped).ok) return false;
-  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(loaded);
-  if (loaded.view().backbone().row_continuities.size() != 3) {
-    return false;
-  }
-  std::string migrated_v4{};
-  if (!loaded.SerializeAuthoritative(&migrated_v4).ok ||
-      migrated_v4.rfind("wire_state_v4\n", 0) != 0 ||
-      migrated_v4.find("authoritative.backbone.row_continuities.count=3\n") == std::string::npos) {
-    return false;
-  }
-  city::wire::CoreState reloaded;
-  if (!reloaded.DeserializeAuthoritative(migrated_v4).ok) return false;
-  std::string resaved{};
-  return reloaded.SerializeAuthoritative(&resaved).ok && resaved == migrated_v4;
-}
-
-bool C801_authoritative_v2_rejects_broken_row_continuity_reference() {
-  city::wire::CoreState source;
-  const auto generated = source.GenerateFromBackboneSpec(backbone_tests::hv_poly3_req(source));
-  if (!generated.ok || generated.value.generated_pole_ids.size() != 3) return false;
-  std::string saved{};
-  if (!source.SerializeAuthoritative(&saved).ok ||
-      saved.find("authoritative.backbone.row_continuities.count=3\n") == std::string::npos) {
-    return false;
-  }
-  const std::string field = "authoritative.backbone.row_continuities.0.a.edge_bundle_id=";
-  const std::size_t field_pos = saved.find(field);
-  if (field_pos == std::string::npos) return false;
-  const std::size_t value_begin = field_pos + field.size();
-  const std::size_t value_end = saved.find('\n', value_begin);
-  if (value_end == std::string::npos) return false;
-  std::string broken = saved;
-  broken.replace(value_begin, value_end - value_begin, "999999999999");
-
-  city::wire::CoreState loaded;
-  const auto out = loaded.DeserializeAuthoritative(broken);
-  return !out.ok;
-}
-
-bool C806_authoritative_v2_does_not_persist_backbone_route_order() {
-  city::wire::CoreState source;
-  std::string saved{};
-  DerivedSnapshot ignored{};
-  if (!make_roundtrip_source(&source, &saved, &ignored)) return false;
-
-  std::istringstream lines(saved);
-  std::string line{};
-  while (std::getline(lines, line)) {
-    const bool backbone_edge =
-        line.rfind("authoritative.backbone.edges.", 0) == 0 ||
-        line.rfind("authoritative.backbone.edge_bundles.", 0) == 0;
-    if (backbone_edge &&
-        (line.find(".route=") != std::string::npos ||
-         line.find(".order=") != std::string::npos)) {
-      return false;
-    }
+    WIRE_TEST_EXPECT_PRESENCE(state.SerializeAuthoritative(&after).ok, "save after rejected load failed");
+    WIRE_TEST_EXPECT_DIFFERENTIAL(after == saved, "failed load changed authoritative state or identity counters");
+    DerivedSnapshot after_derived{};
+    WIRE_TEST_EXPECT_DIFFERENTIAL(snapshot_derived(state, &after_derived) && same_derived(before, after_derived),
+                                  "failed load changed derived output");
+    std::string actual_retry;
+    city::wire::ObjectId actual_pending{};
+    WIRE_TEST_EXPECT_DIFFERENTIAL(retry(state, &actual_retry, &actual_pending),
+                                  "failed load consumed or corrupted the pending branch");
+    WIRE_TEST_EXPECT_DIFFERENTIAL(actual_retry == expected_retry && actual_pending == expected_pending,
+                                  "failed load changed branch retry or pending identity allocation");
   }
   return true;
 }
@@ -581,78 +575,6 @@ bool C757_authoritative_roundtrip_compares_fields_directly() {
          city::wire::CoreStateTestHook::authoritative_equals(source, loaded);
 }
 
-bool C768_legacy_state_preserves_implicit_helix_support() {
-  city::wire::CoreState source;
-  if (!source.GenerateFromBackboneSpec(backbone_tests::line_req(source)).ok) return false;
-  std::string saved{};
-  if (!source.SerializeAuthoritative(&saved).ok) return false;
-
-  static constexpr std::string_view kSupportField =
-      ".span_visual_assembly.support_path_enabled=";
-  static constexpr std::string_view kBundlePrefix =
-      "authoritative.edit_state.bundles.";
-  static constexpr std::array<std::string_view, 5> kBundleFields = {
-      ".spacing_override_m=", ".placement_explicit=", ".height_m=", ".lateral_m=", ".placement_key="};
-  std::string legacy{};
-  legacy.reserve(saved.size());
-  std::size_t removed = 0;
-  std::size_t line_begin = 0;
-  while (line_begin < saved.size()) {
-    const std::size_t line_end = saved.find('\n', line_begin);
-    if (line_end == std::string::npos) return false;
-    const std::string_view line(saved.data() + line_begin, line_end - line_begin);
-    const bool remove = line.find(kSupportField) != std::string_view::npos ||
-        (line.starts_with(kBundlePrefix) &&
-         std::any_of(kBundleFields.begin(), kBundleFields.end(), [&](std::string_view field) {
-           return line.find(field) != std::string_view::npos;
-         }));
-    if (!remove) {
-      legacy.append(line);
-      legacy.push_back('\n');
-    } else {
-      ++removed;
-    }
-    line_begin = line_end + 1;
-  }
-  if (removed == 0) return false;
-  static constexpr std::array<std::string_view, 4> kLegacySupportArmFields = {
-      "authoritative.visual_settings.enable_support_structures=1\n",
-      "authoritative.visual_settings.support_center_threshold_m=0x1p+0\n",
-      "authoritative.visual_settings.support_arm_extra_m=0x1p-1\n",
-      "authoritative.visual_settings.support_arm_radius_m=0x1.47ae147ae147bp-7\n"};
-  for (std::string_view field : kLegacySupportArmFields) {
-    legacy.append(field);
-  }
-
-  city::wire::CoreState loaded;
-  if (!loaded.DeserializeAuthoritative(legacy).ok) return false;
-  for (const auto& [id, bundle] : loaded.view().bundle_templates()) {
-    static_cast<void>(id);
-    if (bundle.span_visual_assembly.support_path_enabled !=
-        bundle.span_visual_assembly.helix_enabled) return false;
-  }
-  for (const city::wire::Bundle& bundle : loaded.view().bundles().items()) {
-    if (bundle.spacing_override_m != 0.0 || bundle.placement_explicit ||
-        bundle.height_m != 0.0 || bundle.lateral_m != 0.0 ||
-        bundle.placement_key != 0) return false;
-  }
-
-  std::string migrated{};
-  if (!loaded.SerializeAuthoritative(&migrated).ok) return false;
-  return std::count(migrated.begin(), migrated.end(), '\n') ==
-             std::count(legacy.begin(), legacy.end(), '\n') + static_cast<std::ptrdiff_t>(removed) -
-                 static_cast<std::ptrdiff_t>(kLegacySupportArmFields.size()) &&
-         migrated.find(kSupportField) != std::string::npos &&
-         migrated.find("enable_support_structures") == std::string::npos &&
-         migrated.find("support_center_threshold_m") == std::string::npos &&
-         migrated.find("support_arm_extra_m") == std::string::npos &&
-         migrated.find("support_arm_radius_m") == std::string::npos &&
-         std::all_of(kBundleFields.begin(), kBundleFields.end(), [&](std::string_view field) {
-           return migrated.find(kBundlePrefix) != std::string::npos &&
-                  migrated.find(field) != std::string::npos;
-         });
-}
-
 bool C763_model_assembly_registration_is_transactional_and_persistent() {
   city::wire::CoreState state;
   city::wire::ModelAssemblyTemplate assembly{};
@@ -677,22 +599,6 @@ bool C763_model_assembly_registration_is_transactional_and_persistent() {
       loaded.view().model_assembly_templates().at(assembly.id) != assembly) {
     return false;
   }
-  std::string legacy = saved;
-  for (const std::string& field : {
-           "authoritative.model_assembly_templates.9001.endpoint_mount_socket.has",
-           "authoritative.model_assembly_templates.9001.endpoint_mount_socket.part_id",
-           "authoritative.model_assembly_templates.9001.endpoint_mount_socket.socket_name"}) {
-    const std::size_t begin = legacy.find(field + "=");
-    if (begin == std::string::npos) return false;
-    const std::size_t end = legacy.find('\n', begin);
-    if (end == std::string::npos) return false;
-    legacy.erase(begin, end - begin + 1);
-  }
-  city::wire::CoreState legacy_loaded;
-  if (!legacy_loaded.DeserializeAuthoritative(legacy).ok ||
-      legacy_loaded.view().model_assembly_templates().at(assembly.id)
-          .endpoint_mount_socket.has_value()) return false;
-
   city::wire::ModelAssemblyTemplate invalid = assembly;
   invalid.id = 9002;
   invalid.wire_socket = city::wire::AssemblySocketRef{7, "missing"};
@@ -708,7 +614,7 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "authoritative save is versioned, deterministic, and changes after state edit",
                          "Invariant", false, C750_authoritative_save_is_deterministic_and_changes_after_edit);
   test_registry::AddTest(tests, "C751_authoritative_load_roundtrip_rederives_bit_exact_outputs",
-                         "authoritative load rederives bit-exact layout, curve, bounds, visual, and run ids",
+                         "authoritative load preserves source derived values and repeated-load bit equality",
                          "Invariant", false, C751_authoritative_load_roundtrip_rederives_bit_exact_outputs);
   test_registry::AddTest(tests, "C752_authoritative_load_resave_is_byte_identical",
                          "authoritative load resaves to identical bytes", "Exact", false,
@@ -719,27 +625,12 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C754_authoritative_load_rejects_invalid_text_without_mutation",
                          "authoritative load rejects version, unknown-key, and truncation errors without mutation",
                          "Boundary", true, C754_authoritative_load_rejects_invalid_text_without_mutation);
-  test_registry::AddTest(tests, "C799_authoritative_v1_load_migrates_row_continuity_to_current",
-                         "authoritative v1 load migrates row continuity and resaves in the current format",
-                         "Boundary", false,
-                         C799_authoritative_v1_load_migrates_row_continuity_to_current);
-  test_registry::AddTest(tests, "C801_authoritative_v2_rejects_broken_row_continuity_reference",
-                         "authoritative v2 load rejects broken row continuity references",
-                         "Boundary", true,
-                         C801_authoritative_v2_rejects_broken_row_continuity_reference);
-  test_registry::AddSourceGuardTest(tests, "C806_authoritative_v2_does_not_persist_backbone_route_order",
-                         "authoritative v2 does not persist backbone route/order helpers",
-                         "Boundary", false,
-                         C806_authoritative_v2_does_not_persist_backbone_route_order);
   test_registry::AddSourceGuardTest(tests, "C756_persistence_has_no_type_specific_write_read_wrappers",
                          "persistence derives write and read from type archive visitors",
                          "Boundary", false, C756_persistence_has_no_type_specific_write_read_wrappers);
   test_registry::AddTest(tests, "C757_authoritative_roundtrip_compares_fields_directly",
                          "authoritative roundtrip compares every archived field directly",
                          "Invariant", false, C757_authoritative_roundtrip_compares_fields_directly);
-  test_registry::AddTest(tests, "C768_legacy_state_preserves_implicit_helix_support",
-                         "legacy authoritative states preserve implicit helix support and resave the explicit field",
-                         "Boundary", true, C768_legacy_state_preserves_implicit_helix_support);
   test_registry::AddTest(tests, "C763_model_assembly_registration_is_transactional_and_persistent",
                          "model assembly registration validates before mutation and survives save/load",
                          "Boundary", true, C763_model_assembly_registration_is_transactional_and_persistent);

@@ -40,6 +40,7 @@ void AddSourceGuardTest(TestRegistry& tests, const char* case_id, const char* in
 void RegisterSuite(SuiteRegisterFn register_fn);
 TestRegistry BuildRegisteredTests();
 bool ValidateSpecLedger(const TestRegistry& tests, std::string* error);
+bool ValidateRecordedEvidence(const TestRegistry& tests, std::string* error);
 void BeginTestCase(const char* case_id, TestFamily family);
 void EndTestCase();
 void RecordAssertion(AssertionKind kind);

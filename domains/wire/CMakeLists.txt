@@ -9,6 +9,7 @@ add_library(
   src/state/endpoint_refresh_service.cpp
   src/state/port_placement.cpp
   src/state/default_bundle_placement.cpp
+  src/state/route_bundle_variation.cpp
   src/state/override_resolution.cpp
   src/state/template/update.cpp
   src/generation/backbone/curve_parts.cpp
@@ -16,7 +17,6 @@ add_library(
   src/generation/backbone/derive_span_layout.cpp
   src/generation/backbone/emit_shared.cpp
   src/generation/backbone/out.cpp
-  src/generation/backbone/population.cpp
   src/generation/backbone/regenerate.cpp
   src/generation/backbone/span_visual_assembly.cpp
   src/generation/backbone/mount_graph.cpp
@@ -66,9 +66,31 @@ if(BUILD_TESTING)
 
   find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
+  set(
+    WIRE_BACKBONE_SEMANTICS_CELLS
+    "${CMAKE_CURRENT_BINARY_DIR}/backbone_semantics_required_cells.txt"
+  )
+  add_custom_command(
+    OUTPUT ${WIRE_BACKBONE_SEMANTICS_CELLS}
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${CMAKE_SOURCE_DIR}/tools/backbone_semantics.py
+      --input ${CMAKE_SOURCE_DIR}/docs/wire/backbone_operation_semantics.md
+      --output ${WIRE_BACKBONE_SEMANTICS_CELLS}
+    DEPENDS
+      ${CMAKE_SOURCE_DIR}/tools/backbone_semantics.py
+      ${CMAKE_SOURCE_DIR}/docs/wire/backbone_operation_semantics.md
+    VERBATIM
+  )
+  add_custom_target(
+    wire_backbone_semantics_cells
+    DEPENDS ${WIRE_BACKBONE_SEMANTICS_CELLS}
+  )
+
   add_custom_target(
     wire_arch_lint
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/harness/test_architecture_lint.py
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/harness/test_architecture_observation.py
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/test_arch_lint.py
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/arch_lint.py --root ${CMAKE_SOURCE_DIR}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
@@ -103,7 +125,8 @@ if(BUILD_TESTING)
     tests/backbone/guard.cpp
     tests/backbone/input.cpp
     tests/backbone/output.cpp
-    tests/backbone/population.cpp
+    tests/backbone/bundle_template_identity.cpp
+    tests/backbone/route_bundle_variation.cpp
     tests/backbone/semantics_coverage.cpp
     tests/backbone/semantics_matrix.cpp
     tests/backbone/update.cpp
@@ -125,7 +148,12 @@ if(BUILD_TESTING)
     wire_core
   )
 
-  add_dependencies(wire_core_tests wire_arch_lint wire_test_family_lint)
+  add_dependencies(
+    wire_core_tests
+    wire_arch_lint
+    wire_backbone_semantics_cells
+    wire_test_family_lint
+  )
 
   wire_enable_msvc_target_defaults(wire_core_tests)
 
@@ -142,7 +170,7 @@ if(BUILD_TESTING)
     PRIVATE
     WIRE_INTERNAL=1
     WIRE_TEST_SPEC_LEDGER_PATH="${CMAKE_CURRENT_SOURCE_DIR}/tests/spec_ledger.md"
-    WIRE_TEST_BACKBONE_SEMANTICS_PATH="${CMAKE_SOURCE_DIR}/docs/wire/backbone_operation_semantics.md"
+    WIRE_TEST_BACKBONE_SEMANTICS_CELLS_PATH="${WIRE_BACKBONE_SEMANTICS_CELLS}"
   )
 
   wire_enable_builtin_vcpkg_applocal(wire_core_tests)

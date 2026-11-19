@@ -1370,7 +1370,8 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
   ROAD_TEST_EXPECT(added.ok, added.error);
   const auto saved = state.Save();
   ROAD_TEST_EXPECT(saved.ok, saved.error);
-  ROAD_TEST_EXPECT(saved.value.starts_with("road_graph_version=16\n") &&
+  ROAD_TEST_EXPECT(saved.value.starts_with("next_id=") &&
+                       saved.value.find("road_graph_version=") == std::string::npos &&
                        saved.value.find("primitive=") == std::string::npos &&
                        saved.value.find("section_template.0.alignment_offset_from_left_m=") !=
                            std::string::npos &&
@@ -1397,11 +1398,10 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
     archive.replace(pos, end == std::string::npos ? std::string::npos : end - pos, prefix + value);
     return archive;
   };
-  std::string version4 = saved.value;
-  version4.replace(0, std::string("road_graph_version=16").size(), "road_graph_version=4");
-  const auto rejected = RoadState::Load(version4);
-  ROAD_TEST_EXPECT(!rejected.ok && rejected.failure_category == CommitFailureCategory::kInvalidInput,
-                   "legacy road archive was not rejected");
+  const auto versioned = RoadState::Load("road_graph_version=16\n" + saved.value);
+  ROAD_TEST_EXPECT(!versioned.ok &&
+                       versioned.failure_category == CommitFailureCategory::kInvalidInput,
+                   "versioned road archive was accepted by the current-schema-only reader");
   std::string truncated = saved.value;
   const std::size_t shape_row = truncated.find("segment.0.shape.start_handle.x=");
   ROAD_TEST_EXPECT(shape_row != std::string::npos, "road archive has no segment shape field");
@@ -1415,19 +1415,27 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
   std::string unknown = saved.value;
   unknown += "unknown.field=1\n";
   ROAD_TEST_EXPECT(!RoadState::Load(unknown).ok, "unknown road archive key was accepted");
+  const auto archive_without = [](std::string archive, const std::string& key) {
+    const std::string prefix = key + "=";
+    const std::size_t begin = archive.find(prefix);
+    if (begin == std::string::npos) return archive;
+    const std::size_t end = archive.find('\n', begin);
+    archive.erase(begin, end == std::string::npos ? std::string::npos : end - begin + 1);
+    return archive;
+  };
+  for (const std::string& required_key : {
+           std::string{"section_template.0.strip.0.side_marking.left.placement"},
+           std::string{"node.0.elevation_m"},
+           std::string{"segment.0.corner_radius_m"},
+       }) {
+    ROAD_TEST_EXPECT(!RoadState::Load(archive_without(saved.value, required_key)).ok,
+                     "current road archive accepted missing field: " + required_key);
+  }
   ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "node.0.position.x", "nan")).ok,
                    "non-finite road archive double was accepted");
   ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "section_template.0.strip.0.style_id", "999")).ok,
                    "unknown road archive surface style was accepted");
-  ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "road_graph_version", "17")).ok,
-                   "future road archive version was accepted");
   ROAD_TEST_EXPECT(failure.empty(), failure);
-  for (int old_version = 1; old_version <= 13; ++old_version) {
-    std::string legacy = saved.value;
-    legacy.replace(0, std::string("road_graph_version=16").size(),
-                   "road_graph_version=" + std::to_string(old_version));
-    ROAD_TEST_EXPECT(!RoadState::Load(legacy).ok, "legacy road archive version was accepted");
-  }
   return true;
 }
 
@@ -6494,51 +6502,6 @@ bool saved_layout_alignment_offset_survives_reload(std::string& failure) {
   return true;
 }
 
-bool version_fourteen_archive_defaults_the_corner_radius(std::string& failure) {
-  RoadState state{};
-  const auto layout = road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
-  ROAD_TEST_EXPECT(draw_straight_road(state, layout, 60.0), "road could not be drawn");
-  const auto saved = state.Save();
-  ROAD_TEST_EXPECT(saved.ok, saved.error);
-
-  // Version 14 predates per-road corner radius but already stores marking
-  // placement. Loading it must add only the historical 4 m default.
-  std::string legacy{};
-  std::istringstream lines{saved.value};
-  std::string line{};
-  std::size_t dropped = 0;
-  while (std::getline(lines, line)) {
-    if (line.find(".corner_radius_m=") != std::string::npos ||
-        line.find(".elevation_m=") != std::string::npos) {
-      ++dropped;
-      continue;
-    }
-    if (line == "road_graph_version=16") line = "road_graph_version=14";
-    legacy += line;
-    legacy += '\n';
-  }
-  ROAD_TEST_EXPECT(dropped > 0, "the archive under test states no corner radius");
-
-  const auto loaded = RoadState::Load(legacy);
-  ROAD_TEST_EXPECT(loaded.ok, loaded.error);
-  for (const auto& segment : loaded.value.graph().segments) {
-    ROAD_TEST_EXPECT(segment.corner_radius_m == 4.0,
-                     "a version 14 road did not receive the historical radius");
-  }
-  // The migration states a radius the archive never had, so it cannot save
-  // back as the bytes it came from.
-  const auto resaved = loaded.value.Save();
-  ROAD_TEST_EXPECT(resaved.ok, resaved.error);
-  ROAD_TEST_EXPECT(resaved.value.starts_with("road_graph_version=16\n"),
-                   "a migrated road did not save as the current version");
-  const auto reloaded = RoadState::Load(resaved.value);
-  ROAD_TEST_EXPECT(reloaded.ok, reloaded.error);
-  const auto settled = reloaded.value.Save();
-  ROAD_TEST_EXPECT(settled.ok && settled.value == resaved.value,
-                   "a migrated road did not settle after one save");
-  return true;
-}
-
 bool junction_corner_radius_is_authoritative_and_inherited(std::string& failure) {
   RoadState state{};
   const auto layout =
@@ -7691,8 +7654,6 @@ int main() {
        off_centre_layout_keeps_its_alignment_through_a_junction},
       {"saved_layout_alignment_offset_survives_reload",
        saved_layout_alignment_offset_survives_reload},
-      {"version_fourteen_archive_defaults_the_corner_radius",
-       version_fourteen_archive_defaults_the_corner_radius},
       {"junction_corner_radius_is_authoritative_and_inherited",
        junction_corner_radius_is_authoritative_and_inherited},
       {"corner_radius_extension_validation_and_mixed_resolution",

@@ -67,14 +67,22 @@ public:
   EditResult<ObjectId> ApplyPoleType(ObjectId pole_id, PoleTypeId pole_type_id);
   // Canonical path-generation API.
   EditResult<GenerateBundleFromPathResult> GenerateFromBackboneSpec(const BackboneSpec& spec);
+  EditResult<GenerateBackboneBundleVariationResult> GenerateBackboneBundleVariation(
+      const BackboneSpec& spec, const RouteBundleVariationInput& descriptor);
+  EditResult<GenerateBundleFromPathResult> ExtendBackboneBundleVariation(
+      ObjectId variation_id, const BackboneSpec& spec);
   // Interprets a viewer-side pick payload and creates volatile pending support nodes when needed.
   EditResult<ResolveBranchPickResult> ResolveBranchPick(const PickResult& pick);
   EditResult<ResolveBranchPickResult> ResolveBranchPick(const PickResult& pick,
                                                         const ResolveBranchPickOptions& options);
+  EditResult<ResolveBranchPickResult> ResolveBackboneBundleVariationBranchPick(
+      ObjectId variation_id, const PickResult& pick);
   // Clears pending support-node drafts created by ResolveBranchPick for the current draw session.
   EditResult<bool> ClearPendingSupportNodes();
   [[nodiscard]] EditResult<DefaultBundlePlacementResult>
   ResolveDefaultBundlePlacement(BundleTemplateId bundle_template_id, PoleTypeId pole_type_id, int count) const;
+  [[nodiscard]] EditResult<std::vector<BackboneBundleSpec>>
+  ResolveRouteBundleVariation(const RouteBundleVariationInput& input) const;
   EditResult<ObjectId> SetPolePlacementMode(ObjectId pole_id, PlacementMode mode);
   EditResult<ObjectId> SetPoleFlip180(ObjectId pole_id, bool flip_180);
   EditResult<ObjectId> SetPoleManualYawOverride(ObjectId pole_id, double manual_yaw_deg);
@@ -99,6 +107,17 @@ public:
                                        const std::vector<ObjectId>& preferred_visible_span_ids);
   EditResult<bool> UpdatePoleTypeDefinition(const PoleTypeDefinition& pole_type);
   EditResult<bool> UpdateBundleTemplate(const BundleTemplate& bundle_template);
+  EditResult<bool> UpdateBackboneBundleConductorCount(ObjectId bundle_id, int conductor_count);
+  EditResult<ObjectId> AddBackboneBundleInstance(ObjectId anchor_bundle_id,
+                                                 std::uint64_t placement_key,
+                                                 double height_m,
+                                                 double lateral_m,
+                                                 double spacing_m);
+  EditResult<bool> ReconcileBackboneBundleInstances(
+      const BackboneBundleReconcileInput& input);
+  EditResult<bool> ApplyBackboneBundleVariation(
+      ObjectId variation_id, const RouteBundleVariationInput& descriptor);
+  EditResult<bool> RetireBackboneBundle(ObjectId bundle_id);
   EditResult<bool> UpdateBackboneBundlePlacement(ObjectId bundle_id, bool placement_explicit,
                                                  double height_m, double lateral_m, double spacing_m);
   // Registers one adapter-built assembly before any template references it.
@@ -134,6 +153,10 @@ public:
   [[nodiscard]] CoreView view() const;
 
 private:
+  [[nodiscard]] const SavedBackboneBundleVariation* backbone_bundle_variation_for_bundle(
+      ObjectId bundle_id) const;
+  void rebuild_backbone_index();
+  void cleanup_orphan_backbone_skeleton(ChangeSet* change_set);
 #if defined(WIRE_INTERNAL) || defined(WIRE_TESTING)
   friend struct CoreStateTestHook;
 #endif
@@ -174,8 +197,10 @@ private:
   EditResult<bool> bind_backbone_node_bundle_modes(ObjectId node_id,
                                                    const std::vector<SupportNodeBundleMode>& bundle_modes);
   EditResult<bool> bind_backbone_node_path_point_index(ObjectId node_id, int path_point_index);
-  SavedBackboneEdgeRef save_backbone_edge(ObjectId node_a, ObjectId node_b, std::size_t route, std::size_t order,
-                                          const Vec3d& dir, double lateral_offset_m);
+  SavedBackboneEdgeRef save_backbone_edge(ObjectId node_a, ObjectId node_b,
+                                          std::size_t route,
+                                          std::size_t order, const Vec3d& dir,
+                                          double lateral_offset_m);
   ObjectId bind_backbone_bundle(ObjectId edge_id, ObjectId bundle_id, bool edge_forward, std::size_t route,
                                 std::size_t order, const Vec3d& dir);
   EditResult<bool> bind_backbone_span(ObjectId edge_bundle_id, std::size_t lane_index, ObjectId span_id);
@@ -207,6 +232,10 @@ private:
     kSpanOverride,
     kLayoutSettings,
   };
+  struct BackboneLaneCountTransition {
+    int previous_count = 0;
+    int next_count = 0;
+  };
   EditResult<bool> regenerate_backbone_edge_bundles(BundleTemplateId bundle_template_id,
                                                     const BundleTemplate& previous_template,
                                                     const BundleTemplate& next_template,
@@ -214,7 +243,8 @@ private:
                                                     const CableTemplate* cable_template_override = nullptr,
                                                     const std::vector<ObjectId>* scoped_edge_bundle_ids = nullptr,
                                                     const PoleTypeDefinition* pole_type_override = nullptr,
-                                                    BackboneRegenerateCause cause = BackboneRegenerateCause::kBundleCount);
+                                                    BackboneRegenerateCause cause = BackboneRegenerateCause::kBundleCount,
+                                                    const BackboneLaneCountTransition* lane_count_transition = nullptr);
   EditResult<bool> regenerate_backbone_span_override(ObjectId span_id, ChangeSet* change_set);
   EditResult<bool> rebuild_loaded_outputs();
   [[nodiscard]] bool authoritative_equals(const CoreState& other) const;

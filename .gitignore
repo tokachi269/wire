@@ -13,6 +13,7 @@ viewer_state.ini
 .vs/
 build-*-config.log
 tmp_*.log
+/.codex-road-wasm-build.*.log
 cmake_abi_probe.cpp
 cmake_abi_probe.exe
 *.user

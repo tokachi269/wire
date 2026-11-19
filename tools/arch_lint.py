@@ -7,6 +7,12 @@ import re
 import sys
 from pathlib import Path
 
+from backbone_semantics import (
+    is_separator_row,
+    markdown_cells,
+    parse_backbone_semantics_cells,
+    table_after_heading,
+)
 from harness.architecture_lint import ArchitectureLintResult, lint_architecture
 from road_arch_lint import check_road_architecture
 
@@ -23,70 +29,15 @@ def word_present(text: str, symbol: str) -> bool:
     return symbol in text
 
 
-def markdown_cells(line: str) -> list[str]:
-    stripped = line.strip()
-    if not stripped.startswith("|") or not stripped.endswith("|"):
-        return []
-    return [cell.strip() for cell in stripped.strip("|").split("|")]
-
-
-def is_separator_row(cells: list[str]) -> bool:
-    return bool(cells) and all(re.fullmatch(r":?-{3,}:?", cell) for cell in cells)
-
-
-def table_after_heading(text: str, heading: str) -> list[str]:
-    lines = text.splitlines()
-    try:
-        start = next(index for index, line in enumerate(lines) if line.strip() == heading)
-    except StopIteration:
-        return []
-    table: list[str] = []
-    in_table = False
-    for line in lines[start + 1:]:
-        if line.startswith("## ") and in_table:
-            break
-        cells = markdown_cells(line)
-        if cells:
-            table.append(line)
-            in_table = True
-            continue
-        if in_table and line.strip() == "":
-            break
-    return table
-
-
-def parse_backbone_semantics_cells(text: str) -> tuple[set[str], list[str]]:
-    errors: list[str] = []
-    table = table_after_heading(text, "## 操作×状態")
-    if len(table) < 2:
-        return set(), ["docs/wire/backbone_operation_semantics.md: missing operation-state table"]
-    header = markdown_cells(table[0])
-    states = [match.group(1) for cell in header[1:] if (match := re.fullmatch(r"`([^`]+)`", cell))]
-    if len(states) != len(header) - 1:
-        errors.append("docs/wire/backbone_operation_semantics.md: operation-state table state headers must be backtick ids")
-    required: set[str] = set()
-    for line in table[1:]:
-        cells = markdown_cells(line)
-        if not cells or is_separator_row(cells):
-            continue
-        if len(cells) != len(header):
-            errors.append(f"docs/wire/backbone_operation_semantics.md: malformed operation-state row: {line.strip()}")
-            continue
-        op_match = re.search(r"`([^`]+)`", cells[0])
-        if op_match is None:
-            errors.append(f"docs/wire/backbone_operation_semantics.md: operation row lacks backtick id: {cells[0]}")
-            continue
-        operation = op_match.group(1)
-        for state, value in zip(states, cells[1:]):
-            code_values = set(re.findall(r"`([^`]+)`", value))
-            bare = re.sub(r"`[^`]+`", "", value).strip()
-            if "-" in code_values or bare == "-":
-                continue
-            if any(re.fullmatch(r"D\d+", item) for item in code_values):
-                continue
-            if code_values.intersection({"C", "O", "K", "U"}):
-                required.add(f"BOS:{operation}:{state}")
-    return required, errors
+def parse_guard_tokens(value: str) -> tuple[set[str], str | None]:
+    # 検査式はidentifierに限らない。取りこぼすと宣言した担当箇所の固定が黙って無効になる。
+    if value.strip() in ("", "-"):
+        return set(), None
+    tokens = set(re.findall(r"`([^`]+)`", value))
+    leftover = re.sub(r"`[^`]*`", " ", value).strip()
+    if leftover:
+        return tokens, leftover
+    return tokens, None
 
 
 def parse_aspect_list(value: str) -> set[str]:
@@ -114,15 +65,25 @@ def parse_backbone_authority_guards(text: str) -> tuple[list[dict[str, object]],
         if not (owner.startswith("domains/wire/src/") or owner.startswith("domains/wire/include/")):
             errors.append(f"domains/wire/tests/spec_ledger.md: authority guard owner must be wire production code: {owner}")
             continue
-        guards.append(
-            {
-                "name": name,
-                "owner": owner,
-                "required": parse_aspect_list(cells[2]),
-                "unique": parse_aspect_list(cells[3]),
-                "forbidden": parse_aspect_list(cells[4]) if len(cells) >= 5 else set(),
-            }
-        )
+        columns = {
+            "required": cells[2],
+            "unique": cells[3],
+            "forbidden": cells[4] if len(cells) >= 5 else "",
+        }
+        parsed: dict[str, set[str]] = {}
+        malformed = False
+        for column, cell in columns.items():
+            tokens, leftover = parse_guard_tokens(cell)
+            if leftover is not None:
+                errors.append(
+                    f"domains/wire/tests/spec_ledger.md: authority guard {name} has an unquoted "
+                    f"{column} token: {leftover}"
+                )
+                malformed = True
+            parsed[column] = tokens
+        if malformed:
+            continue
+        guards.append({"name": name, "owner": owner} | parsed)
     return guards, errors
 
 
@@ -190,10 +151,12 @@ def check_backbone_semantics_coverage(root: Path) -> list[str]:
     required_runtime_tokens = {
         "domains/wire/tests/backbone/semantics_coverage.cpp": (
             "ValidateRuntimeCoverage",
-            "required_cells",
+            "load_required_cells",
             "classify",
             "ObserveMidspan",
-            "TestCaseHasIndependentAssertion",
+            "RecordObservationEvidence",
+            "ValidateRecordedObservationEvidence",
+            "VerifyOutcome",
             "CurrentTestFamily",
             "TestFamily::kSourceGuard",
         ),
@@ -210,7 +173,9 @@ def check_backbone_semantics_coverage(root: Path) -> list[str]:
             "ValidateRuntimeCoverage",
         ),
         "domains/wire/CMakeLists.txt": (
-            "WIRE_TEST_BACKBONE_SEMANTICS_PATH",
+            "tools/backbone_semantics.py",
+            "wire_backbone_semantics_cells",
+            "WIRE_TEST_BACKBONE_SEMANTICS_CELLS_PATH",
             "tests/backbone/semantics_coverage.cpp",
             "tests/backbone/semantics_matrix.cpp",
         ),
@@ -254,11 +219,39 @@ def check_backbone_semantics_coverage(root: Path) -> list[str]:
     errors.extend(check_authority_guard_owners(authority_guards, production_text))
     return errors
 
+JAPANESE_RANGE = re.compile(r"[\u3040-\u30ff\u4e00-\u9fff]")
+
+
+def check_document_notation(root: Path) -> list[str]:
+    # コード表記は原文のまま読めることを前提にするため、日本語を混ぜない。
+    errors: list[str] = []
+    targets = sorted((root / "docs").rglob("*.md")) + sorted((root / "domains/wire/tests").rglob("*.md"))
+    for path in targets:
+        relative = path.relative_to(root).as_posix()
+        in_fence = False
+        for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").split("\n"), 1):
+            if line.lstrip().startswith("```"):
+                in_fence = not in_fence
+                continue
+            if in_fence:
+                if JAPANESE_RANGE.search(line):
+                    errors.append(
+                        f"{relative}:{number}: code fence contains Japanese text; use a table or prose"
+                    )
+                continue
+            for span in re.findall(r"`([^`]+)`", line):
+                if JAPANESE_RANGE.search(span):
+                    errors.append(
+                        f"{relative}:{number}: inline code span contains Japanese text: {span[:40]}"
+                    )
+    return errors
+
+
 def check_architecture_documents(root: Path) -> list[str]:
     required_tokens = {
         "docs/architecture.md": (
             "# Repository architecture",
-            "## Domain着手条件",
+            "## ドメインの実装に着手する条件",
             "## State layers",
             "## Operations and build",
             "## Dependency direction",
@@ -268,14 +261,38 @@ def check_architecture_documents(root: Path) -> list[str]:
             "## 契約を中心とした検証",
             "## 保護手段の優先順位",
             "## Oracleの独立性",
-            "## 振る舞いprobe catalog",
-            "### Pattern選択guide",
-            "## Regression lifecycle",
-            "## Testの退役",
+            "## 振る舞いprobeの一覧",
+            "### 選び方",
+            "## 不具合修正の手順",
+            "## テストの退役",
         ),
         "docs/wire/architecture.md": (
             "# Wire architecture",
+            "## High-level structure",
+            "## Architecture views",
+            "## Essential architecture contracts",
             "backbone_operation_semantics.md",
+        ),
+        "docs/wire/state_and_persistence.md": (
+            "# Wire state and persistence",
+            "## Authority map",
+            "## Session draft",
+            "## Persistence",
+            "## Public view lifetime",
+        ),
+        "docs/wire/generation.md": (
+            "# Wire generation",
+            "## Pipeline",
+            "## Placement",
+            "## Identity mapping",
+            "## Build-Rebuild",
+            "## Validation boundary",
+        ),
+        "docs/wire/cable_visual.md": (
+            "# Wire cable visual",
+            "## Cable curve",
+            "## Span visual assembly",
+            "## Render materialization boundary",
         ),
         "docs/wire/testing.md": (
             "# Wire検証",
@@ -303,6 +320,13 @@ def check_architecture_documents(root: Path) -> list[str]:
             "## 新しい概念を導入する手順",
             "## Guardrail昇格の段階",
             "## バグ修正手順",
+            "## Architecture-significant change workflow",
+            "Problem classification:",
+            "Expected state/schema impact:",
+            "Actual state/schema impact:",
+            "Backward:",
+            "Inward:",
+            "Forward:",
             "## 再利用可能なtask template",
             "## 新規projectの立ち上げ",
         ),
@@ -324,12 +348,12 @@ def check_draw_interaction_contract(root: Path) -> list[str]:
     errors: list[str] = []
     required = {
         "docs/editor/draw_interaction.md": (
-            "## Click",
-            "## Pointer move",
+            "## クリック（Click）",
+            "## ポインター移動",
             "## Enter",
             "## Escape",
-            "## Undo",
-            "## Tool switch",
+            "## 取り消し（Undo）",
+            "## ツール切り替え",
         ),
         "web/src/actions/viewer.ts": (
             "this.draw.primaryViewportPoint",
@@ -360,14 +384,14 @@ def check_draw_interaction_contract(root: Path) -> list[str]:
         "docs/road/supported_operations.md": (
             "## 通常描画で対応する構成",
             "## 製品要件による制約",
-            "## failureのowner",
+            "## 失敗時の責務",
             "road_path_self_intersection",
         ),
         "docs/wire/supported_operations.md": (
-            "## Normal drawing fixtures",
-            "## Requirement constraints",
-            "## Failure ownership",
-            "twelve independent model-aware routes",
+            "## 通常描画で対応する構成",
+            "## 製品要件による制約",
+            "## 失敗時の責務",
+            "モデルを含む独立した12本のroute",
         ),
         "web/src/store/viewer.ts": (
             "DrawActionResult",
@@ -456,6 +480,7 @@ def main() -> int:
                     errors.append(f"{source}: wire core forbids city-domain symbol {symbol!r}")
 
     errors.extend(check_architecture_documents(root))
+    errors.extend(check_document_notation(root))
     errors.extend(check_backbone_semantics_coverage(root))
     errors.extend(check_draw_interaction_contract(root))
     errors.extend(check_road_architecture(root))

@@ -7,7 +7,9 @@ import type {
   LayoutSettings,
   PathPickInfo,
   PoleTemplateInfo,
+  RouteVariationControls,
   SceneContentSyncStats,
+  VariationSettings,
   VisualSettings
 } from "../model";
 import type { DrawActionResult, SelectionKind, ViewerStore, WorldPoint } from "../store/viewer";
@@ -266,6 +268,27 @@ export class ViewerActions {
     this.draw.generatePath();
   }
 
+  setRouteVariation<K extends keyof RouteVariationControls>(
+    param: K,
+    value: RouteVariationControls[K]
+  ): void {
+    const snapshot = this.ctx.readSnapshot();
+    if (snapshot.pathPoints.length === 0 && snapshot.selectedRouteVariation !== null) {
+      this.selection.setRouteVariation(param, value);
+      return;
+    }
+    this.draw.setRouteVariation(param, value);
+  }
+
+  rerollRouteSeed(): void {
+    const snapshot = this.ctx.readSnapshot();
+    if (snapshot.pathPoints.length === 0 && snapshot.selectedRouteVariation !== null) {
+      this.selection.rerollRouteVariation();
+      return;
+    }
+    this.draw.rerollRouteSeed();
+  }
+
   previewGeometry<K extends keyof GeometrySettings>(
     param: K,
     value: GeometrySettings[K]
@@ -299,6 +322,20 @@ export class ViewerActions {
     value: VisualSettings[K]
   ): void {
     this.settings.commitVisual(param, value);
+  }
+
+  previewVariation<K extends keyof VariationSettings>(
+    param: K,
+    value: VariationSettings[K]
+  ): void {
+    this.settings.previewVariation(param, value);
+  }
+
+  commitVariation<K extends keyof VariationSettings>(
+    param: K,
+    value: VariationSettings[K]
+  ): void {
+    this.settings.commitVariation(param, value);
   }
 
   applyTiltToAll(maxTiltDeg: number): void {

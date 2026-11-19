@@ -33,6 +33,10 @@ struct TemplateMutationService {
   static EditResult<bool> UpdateCableTemplate(CoreState& state, const CableTemplate& cable_template,
                                               const std::vector<ObjectId>& preferred_visible_span_ids);
   static EditResult<bool> UpdateBundleTemplate(CoreState& state, const BundleTemplate& bundle_template);
+  static EditResult<bool> UpdateBackboneBundleConductorCount(
+      CoreState& state, ObjectId bundle_id, int conductor_count,
+      const BundleTemplate* previous_template = nullptr,
+      const BundleTemplate* next_template = nullptr);
   static EditResult<bool> UpdateAttachmentTemplate(CoreState& state, const AttachmentTemplate& attachment_template,
                                                    bool mark_dependent_spans_dirty);
   static EditResult<bool> ResetAllSpanReferenceLengths(CoreState& state, bool mark_all_spans_dirty);

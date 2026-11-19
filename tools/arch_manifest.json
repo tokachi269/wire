@@ -34,13 +34,12 @@
     },
     {
       "name": "generation_backbone",
-      "patterns": ["domains/wire/src/generation/backbone/*.cpp", "domains/wire/src/generation/backbone/*.hpp"],
+      "patterns": ["domains/wire/src/generation/backbone/*.cpp", "domains/wire/src/generation/backbone/*.hpp", "domains/wire/src/generation/generate_from_backbone.cpp"],
       "forbidden_tokens": ["viewer/", "ProcessDirtyQueues", "support_layout_contract", "support_layout_projection"]
     },
     {
       "name": "generation_input",
       "patterns": [
-        "domains/wire/src/generation/*.cpp",
         "domains/wire/src/generation/*.hpp",
         "domains/wire/src/generation/pole_facing/*.cpp",
         "domains/wire/src/generation/pole_facing/*.hpp"

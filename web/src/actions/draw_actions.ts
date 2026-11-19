@@ -1,17 +1,72 @@
 import type { ViewerActionContext } from "./context";
 import { CommitFailureCategory, type BundleTemplateInfo, type PathPickInfo, type WireIntervalRequest } from "../model";
 import type { DrawActionResult, PathPointSpec, WorldPoint } from "../store/viewer";
+import {
+  DEFAULT_PREFERRED_SIDE_SIGN,
+  routeBundleRules
+} from "../profile/defaultBundlePreset";
+import type { RouteVariationControls } from "../model";
+
+function newRouteSeed(): number {
+  const words = new Uint32Array(2);
+  globalThis.crypto.getRandomValues(words);
+  return words[0] * 0x200000 + (words[1] & 0x1fffff);
+}
 
 export class DrawActions {
   private readonly committedHistory: Array<{ before: string; after: string }> = [];
 
   constructor(private readonly ctx: ViewerActionContext) {}
 
+  setRouteVariation<K extends keyof RouteVariationControls>(
+    param: K,
+    value: RouteVariationControls[K]
+  ): void {
+    const current = this.ctx.readSnapshot();
+    const controls = { ...current.routeVariation, [param]: value };
+    if (current.pathPoints.length > 0) {
+      if (current.wireVariationId === null) {
+        this.ctx.store.update((snapshot) => ({
+          ...snapshot,
+          routeVariation: controls
+        }));
+        this.resolveRouteVariation(current.wireRouteSeed ?? newRouteSeed());
+        return;
+      }
+      this.applyActiveRouteVariation(controls, current.wireRouteSeed);
+      return;
+    }
+    this.ctx.store.update((current) => ({
+      ...current,
+      routeVariation: controls,
+      wireRouteSeed: null
+    }));
+  }
+
+  rerollRouteSeed(): void {
+    const current = this.ctx.readSnapshot();
+    let routeSeed = newRouteSeed();
+    if (routeSeed === current.wireRouteSeed) routeSeed = (routeSeed + 1) % Number.MAX_SAFE_INTEGER;
+    if (current.pathPoints.length > 0) {
+      if (current.wireVariationId === null) {
+        this.resolveRouteVariation(routeSeed);
+        return;
+      }
+      this.applyActiveRouteVariation(current.routeVariation, routeSeed);
+      return;
+    }
+    this.resolveRouteVariation(routeSeed);
+  }
+
   primaryViewportPoint(point: WorldPoint, pick?: PathPickInfo): DrawActionResult {
     const current = this.ctx.readSnapshot();
     if (current.pathPoints.length === 0) {
+      if (!this.beginRouteVariation()) {
+        return { kind: "commit-rejected", reasonCode: "wire_route_variation_rejected" };
+      }
       const anchor = this.resolveAnchor(point, pick);
       if (anchor === null) {
+        this.ctx.store.update((snapshot) => ({ ...snapshot, wireRouteSeed: null }));
         return {
           kind: "commit-rejected",
           reasonCode: this.ctx.readSnapshot().lastCommitFailure?.reasonCode ?? "wire_anchor_rejected"
@@ -21,6 +76,8 @@ export class DrawActions {
         ...snapshot,
         pathPoints: [anchor.point],
         pathPointSpecs: [anchor.spec],
+        selectedRouteVariation: null,
+        selectedRouteVariationControls: { density: 1, heightSpread: 1, lateralSpread: 1 },
         wirePreview: { state: "none", request: null },
         error: "",
         lastCommitFailure: null
@@ -69,10 +126,14 @@ export class DrawActions {
     if (preview.state === "guide" && preview.request !== null) {
       return this.commitWireInterval(preview.request, true);
     }
-    return this.cancelSession();
+    return this.endSession(true);
   }
 
   cancelSession(): DrawActionResult {
+    return this.endSession(false);
+  }
+
+  private endSession(retainVariationTarget: boolean): DrawActionResult {
     // Escape with nothing drawn is a distinguishable non-event, not the end of
     // a session. Road reports the same.
     const snapshot = this.ctx.readSnapshot();
@@ -84,10 +145,21 @@ export class DrawActions {
       this.ctx.store.setError(cleared.error);
       return { kind: "commit-rejected", reasonCode: cleared.reasonCode || "wire_session_clear_failed" };
     }
+    const variation = retainVariationTarget && snapshot.wireVariationId !== null
+      ? this.ctx.bridge.backboneBundleVariation(snapshot.wireVariationId)
+      : null;
     this.ctx.store.update((current) => ({
       ...current,
       pathPoints: [],
       pathPointSpecs: [],
+      wireRouteSeed: null,
+      wireVariationId: null,
+      selectedRouteVariation: variation?.ok && variation.found
+        ? variation
+        : current.selectedRouteVariation,
+      selectedRouteVariationControls: variation?.ok && variation.found
+        ? { density: 1, heightSpread: 1, lateralSpread: 1 }
+        : current.selectedRouteVariationControls,
       wirePreview: { state: "none", request: null },
       error: "",
       lastCommitFailure: null
@@ -117,6 +189,8 @@ export class DrawActions {
       ...current,
       pathPoints: [],
       pathPointSpecs: [],
+      wireRouteSeed: null,
+      wireVariationId: null,
       wirePreview: { state: "none", request: null },
       drawBundlePlacements: current.drawBundlePlacements.map(({ generatedBundleId: _id, ...placement }) => placement),
       error: ""
@@ -124,14 +198,19 @@ export class DrawActions {
   }
 
   addPathPoint(point: WorldPoint, pick?: PathPickInfo): void {
+    if (this.ctx.readSnapshot().pathPoints.length === 0 && !this.beginRouteVariation()) return;
     let nextPoint = point;
     let nextSpec: PathPointSpec | null = null;
     if (pick !== undefined) {
       const before = this.ctx.readSnapshot();
-      const resolved = this.ctx.bridge.resolveBranchPick(
-        pick,
-        [...new Set(before.drawBundlePlacements.map((placement) => placement.bundleTemplateId))]
-      );
+      const resolved = before.wireVariationId === null
+        ? this.ctx.bridge.resolveBranchPick(
+          pick,
+          [...new Set(before.drawBundlePlacements.map((placement) => placement.bundleTemplateId))]
+        )
+        : this.ctx.bridge.resolveBundleVariationBranchPick(
+          pick, before.wireVariationId
+        );
       if (!resolved.ok) {
         this.ctx.store.setError(resolved.error);
         return;
@@ -163,6 +242,12 @@ export class DrawActions {
         ...current,
         pathPoints: [...current.pathPoints, appendPoint],
         pathPointSpecs: [...current.pathPointSpecs, nextSpec],
+        selectedRouteVariation: current.pathPoints.length === 0
+          ? null
+          : current.selectedRouteVariation,
+        selectedRouteVariationControls: current.pathPoints.length === 0
+          ? { density: 1, heightSpread: 1, lateralSpread: 1 }
+          : current.selectedRouteVariationControls,
         error: ""
       };
     });
@@ -174,16 +259,24 @@ export class DrawActions {
       this.ctx.store.setError(cleared.error);
       return;
     }
-    this.ctx.store.update((current) => ({ ...current, pathPoints: [], pathPointSpecs: [], error: "" }));
+    this.ctx.store.update((current) => ({
+      ...current, pathPoints: [], pathPointSpecs: [], wireRouteSeed: null,
+      wireVariationId: null, error: ""
+    }));
   }
 
   undoPathPoint(): void {
-    this.ctx.store.update((current) => ({
-      ...current,
-      pathPoints: current.pathPoints.slice(0, -1),
-      pathPointSpecs: current.pathPointSpecs.slice(0, -1),
-      error: ""
-    }));
+    this.ctx.store.update((current) => {
+      const pathPoints = current.pathPoints.slice(0, -1);
+      return {
+        ...current,
+        pathPoints,
+        pathPointSpecs: current.pathPointSpecs.slice(0, -1),
+        wireRouteSeed: pathPoints.length === 0 ? null : current.wireRouteSeed,
+        wireVariationId: pathPoints.length === 0 ? null : current.wireVariationId,
+        error: ""
+      };
+    });
   }
 
   undoPathPointOrClearSelection(clearSelection: () => void): void {
@@ -196,23 +289,61 @@ export class DrawActions {
   }
 
   updateDrawBundlePlacement(id: number, change: Partial<Omit<import("../model").BundlePlacement, "id">>): void {
-    this.ctx.store.update((current) => ({
-      ...current,
-      drawBundlePlacements: current.drawBundlePlacements.map((placement) =>
-        placement.id === id ? { ...placement, ...change } : placement
-      )
-    }));
-    const placement = this.ctx.readSnapshot().drawBundlePlacements.find((item) => item.id === id);
-    if (placement?.generatedBundleId === undefined) return;
-    const result = this.ctx.bridge.updateBackboneBundlePlacement(placement.generatedBundleId, placement);
-    if (!result.ok) {
-      this.ctx.store.setError(result.error);
-      return;
+    const before = this.ctx.readSnapshot();
+    const currentTarget = before.drawBundlePlacements.find(
+      (placement) => placement.id === id
+    );
+    if (currentTarget === undefined) return;
+    if (currentTarget.generatedBundleId !== undefined) {
+      const owner = this.ctx.bridge.backboneBundleVariationForBundle(
+        currentTarget.generatedBundleId
+      );
+      if (!owner.ok || owner.found) {
+        this.ctx.store.setError(
+          owner.error ||
+          "recipe-backed Bundle placement must be changed with explicit variation Apply"
+        );
+        return;
+      }
+      const result = this.ctx.bridge.updateBackboneBundlePlacement(
+        currentTarget.generatedBundleId, { ...currentTarget, ...change }
+      );
+      if (!result.ok) {
+        this.ctx.store.setError(result.error);
+        return;
+      }
     }
-    this.ctx.refreshScene();
+    this.ctx.store.update((current) => {
+      const target = current.drawBundlePlacements.find((placement) => placement.id === id);
+      return {
+        ...current,
+        wireRouteSeed: current.wireRouteSeed ?? newRouteSeed(),
+        drawBundleSource: target?.generatedBundleId === undefined ? "manual" : current.drawBundleSource,
+        drawBundlePlacements: current.drawBundlePlacements.map((placement) =>
+          placement.id === id ? { ...placement, ...change } : placement
+        )
+      };
+    });
+    if (currentTarget.generatedBundleId !== undefined) this.ctx.refreshScene();
   }
 
   duplicateDrawBundlePlacement(id: number): void {
+    const before = this.ctx.readSnapshot();
+    const source = before.drawBundlePlacements.find(
+      (placement) => placement.id === id
+    );
+    if (source?.generatedBundleId !== undefined) {
+      const owner = this.ctx.bridge.backboneBundleVariationForBundle(
+        source.generatedBundleId
+      );
+      if (!owner.ok || owner.found) {
+        this.ctx.store.setError(
+          owner.error ||
+          "recipe-backed Bundle cannot be duplicated as an implicit manual Bundle"
+        );
+        return;
+      }
+    }
     this.ctx.store.update((current) => {
       const index = current.drawBundlePlacements.findIndex((placement) => placement.id === id);
       if (index < 0) return current;
@@ -220,7 +351,12 @@ export class DrawActions {
       const placements = [...current.drawBundlePlacements];
       const { generatedBundleId: _generatedBundleId, ...source } = placements[index];
       placements.splice(index + 1, 0, { ...source, id: nextId });
-      return { ...current, drawBundlePlacements: placements };
+      return {
+        ...current,
+        wireRouteSeed: current.wireRouteSeed ?? newRouteSeed(),
+        drawBundleSource: "manual",
+        drawBundlePlacements: placements
+      };
     });
   }
 
@@ -241,10 +377,14 @@ export class DrawActions {
   ): { point: WorldPoint; spec: PathPointSpec | null } | null {
     if (pick === undefined) return { point, spec: null };
     const current = this.ctx.readSnapshot();
-    const resolved = this.ctx.bridge.resolveBranchPick(
-      pick,
-      [...new Set(current.drawBundlePlacements.map((placement) => placement.bundleTemplateId))]
-    );
+    const resolved = current.wireVariationId === null
+      ? this.ctx.bridge.resolveBranchPick(
+        pick,
+        [...new Set(current.drawBundlePlacements.map((placement) => placement.bundleTemplateId))]
+      )
+      : this.ctx.bridge.resolveBundleVariationBranchPick(
+        pick, current.wireVariationId
+      );
     if (!resolved.ok) {
       this.ctx.store.setCommitFailure(resolved, "wire anchor", point);
       return null;
@@ -253,6 +393,98 @@ export class DrawActions {
       point: [resolved.positionX, resolved.positionY, resolved.positionZ],
       spec: { supportKind: resolved.supportKind, nodeId: resolved.nodeId }
     };
+  }
+
+  private beginRouteVariation(): boolean {
+    const current = this.ctx.readSnapshot();
+    if (current.wireRouteSeed !== null) return true;
+    return this.resolveRouteVariation(newRouteSeed());
+  }
+
+  private resolveRouteVariation(routeSeed: number): boolean {
+    const current = this.ctx.readSnapshot();
+    const resolved = this.ctx.bridge.resolveRouteBundleVariation(
+      routeBundleRules(current.routeVariation),
+      routeSeed,
+      DEFAULT_PREFERRED_SIDE_SIGN,
+      current.selectedPoleTemplateId ?? 1
+    );
+    if (!resolved.ok || resolved.placements.length === 0) {
+      this.ctx.store.setError(resolved.error || "route bundle variation resolved no bundles");
+      return false;
+    }
+    this.ctx.store.update((snapshot) => ({
+      ...snapshot,
+      wireRouteSeed: routeSeed,
+      drawBundleSource: "variation",
+      drawBundlePlacements: [...resolved.placements]
+        .sort((a, b) => b.height - a.height || a.id - b.id)
+    }));
+    return true;
+  }
+
+  private applyActiveRouteVariation(
+    controls: RouteVariationControls,
+    routeSeed: number | null
+  ): boolean {
+    const current = this.ctx.readSnapshot();
+    if (current.wireVariationId === null || routeSeed === null) {
+      this.ctx.store.setError("active wire route has no persisted variation identity");
+      return false;
+    }
+    const persisted = this.ctx.bridge.backboneBundleVariation(current.wireVariationId);
+    if (!persisted.ok || !persisted.found || persisted.preferredSideSign === undefined ||
+        persisted.poleTypeId === undefined) {
+      this.ctx.store.setError(persisted.error || "active wire route variation is missing");
+      return false;
+    }
+    const rules = routeBundleRules(controls);
+    const resolved = this.ctx.bridge.resolveRouteBundleVariation(
+      rules, routeSeed, persisted.preferredSideSign, persisted.poleTypeId
+    );
+    if (!resolved.ok || resolved.placements.length === 0) {
+      this.ctx.store.setError(resolved.error || "active route variation resolved no bundles");
+      return false;
+    }
+    const beforeState = this.ctx.bridge.saveState();
+    const applied = this.ctx.bridge.applyBackboneBundleVariation(
+      current.wireVariationId, rules, routeSeed,
+      persisted.preferredSideSign, persisted.poleTypeId
+    );
+    if (!applied.ok) {
+      this.ctx.store.setError(applied.error);
+      return false;
+    }
+    const updated = this.ctx.bridge.backboneBundleVariation(current.wireVariationId);
+    if (!updated.ok || !updated.found) {
+      const restored = this.ctx.bridge.loadState(beforeState);
+      this.ctx.store.setError(restored.ok
+        ? (updated.error || "applied route variation could not be reloaded")
+        : restored.error);
+      return false;
+    }
+    this.committedHistory.push({ before: beforeState, after: this.ctx.bridge.saveState() });
+    const bundleIdByPlacementKey = new Map(
+      (updated.instances ?? []).map((instance) => [instance.placementKey, instance.bundleId])
+    );
+    this.ctx.store.update((snapshot) => ({
+      ...snapshot,
+      routeVariation: controls,
+      wireRouteSeed: routeSeed,
+      drawBundlePlacements: [...resolved.placements]
+        .sort((a, b) => b.height - a.height || a.id - b.id)
+        .map((placement) => ({
+          ...placement,
+          generatedBundleId: bundleIdByPlacementKey.get(placement.id)
+        })),
+      selectedRouteVariation:
+        snapshot.selectedRouteVariation?.variationId === updated.variationId
+          ? updated
+          : snapshot.selectedRouteVariation,
+      error: ""
+    }));
+    this.ctx.refreshScene();
+    return true;
   }
 
   private intervalRequest(point: WorldPoint, pick?: PathPickInfo): WireIntervalRequest | null {
@@ -267,11 +499,25 @@ export class DrawActions {
       points: [anchor, point],
       pointSpecs: [current.pathPointSpecs[0] ?? null, null],
       targetPick: pick,
-      bundlePlacements: current.drawBundlePlacements.map(({ generatedBundleId: _id, ...placement }) => placement),
+      bundlePlacements: current.wireVariationId === null
+        ? current.drawBundlePlacements.map(({ generatedBundleId: _id, ...placement }) => placement)
+        : current.drawBundlePlacements,
       intervalM: current.clickedPointsOnly ? 0 : current.intervalM,
       poleTypeId: current.selectedPoleTemplateId ?? 1,
       directionMode: current.directionMode,
-      maxTiltDeg: current.maxTiltDeg
+      maxTiltDeg: current.maxTiltDeg,
+      variationId: current.drawBundleSource === "variation"
+        ? current.wireVariationId ?? undefined
+        : undefined,
+      variationRules: current.drawBundleSource === "variation" && current.wireVariationId === null
+        ? routeBundleRules(current.routeVariation)
+        : undefined,
+      routeSeed: current.drawBundleSource === "variation" && current.wireVariationId === null
+        ? current.wireRouteSeed ?? undefined
+        : undefined,
+      preferredSideSign: current.drawBundleSource === "variation" && current.wireVariationId === null
+        ? DEFAULT_PREFERRED_SIDE_SIGN
+        : undefined
     };
   }
 
@@ -320,15 +566,33 @@ export class DrawActions {
           ? generatedEndpointNodeId
           : result.endpointSpec.nodeId
       };
+    const variationId = result.variationId || this.ctx.readSnapshot().wireVariationId;
+    const variation = variationId === null || variationId === undefined || variationId.length === 0
+      ? null
+      : this.ctx.bridge.backboneBundleVariation(variationId);
+    const bundleIdByPlacementKey = new Map(
+      variation?.ok && variation.found
+        ? (variation.instances ?? []).map((instance) => [instance.placementKey, instance.bundleId])
+        : []
+    );
     const generatedBundleIds = result.generatedBundleIds ?? [];
     this.ctx.store.update((current) => ({
       ...current,
       pathPoints: endSession ? [] : [endpoint],
       pathPointSpecs: endSession ? [] : [endpointSpec],
+      wireRouteSeed: endSession ? null : current.wireRouteSeed,
+      wireVariationId: endSession ? null : variationId ?? null,
+      selectedRouteVariation: endSession && variation?.ok && variation.found
+        ? variation
+        : current.selectedRouteVariation,
+      selectedRouteVariationControls: endSession && variation?.ok && variation.found
+        ? { density: 1, heightSpread: 1, lateralSpread: 1 }
+        : current.selectedRouteVariationControls,
       wirePreview: { state: "none", request: null },
       drawBundlePlacements: current.drawBundlePlacements.map((placement, index) => ({
         ...placement,
-        generatedBundleId: generatedBundleIds[index] ?? placement.generatedBundleId
+        generatedBundleId: bundleIdByPlacementKey.get(placement.id) ??
+          generatedBundleIds[index] ?? placement.generatedBundleId
       })),
       error: "",
       lastCommitFailure: null
@@ -343,7 +607,6 @@ export class DrawActions {
   ): void {
     const before = this.ctx.readSnapshot();
     const placements = before.drawBundlePlacements;
-    const generationPlacements = placements.map(({ generatedBundleId: _generatedBundleId, ...placement }) => placement);
     const bundleTemplates: BundleTemplateInfo[] = before.bundleTemplates;
 
     if (points.length < 2) {
@@ -371,15 +634,23 @@ export class DrawActions {
       })
       .filter((spec): spec is { pointIndex: number; supportKind: number; nodeId: string } => spec !== null);
     const generateStart = performance.now();
-    const result = this.ctx.bridge.generate(
-      flatPoints,
-      generationPlacements,
-      before.clickedPointsOnly ? 0 : before.intervalM,
-      before.selectedPoleTemplateId ?? 1,
-      before.directionMode,
-      before.maxTiltDeg,
-      nodeSpecs
-    );
+    const result = before.drawBundleSource === "variation"
+      ? this.ctx.bridge.generateBundleVariation(
+        flatPoints, routeBundleRules(before.routeVariation),
+        before.wireRouteSeed ?? newRouteSeed(), DEFAULT_PREFERRED_SIDE_SIGN,
+        before.clickedPointsOnly ? 0 : before.intervalM,
+        before.selectedPoleTemplateId ?? 1, before.directionMode,
+        before.maxTiltDeg, nodeSpecs
+      )
+      : this.ctx.bridge.generate(
+        flatPoints,
+        placements.map(({ generatedBundleId: _generatedBundleId, ...placement }) => placement),
+        before.clickedPointsOnly ? 0 : before.intervalM,
+        before.selectedPoleTemplateId ?? 1,
+        before.directionMode,
+        before.maxTiltDeg,
+        nodeSpecs
+      );
     const generateEnd = performance.now();
     if (!result.ok) {
       this.ctx.store.setError(result.error);
@@ -387,9 +658,20 @@ export class DrawActions {
     }
     const sceneStart = performance.now();
     const scene = this.ctx.bridge.scene();
+    const generatedVariation = result.variationId === undefined || result.variationId.length === 0
+      ? null
+      : this.ctx.bridge.backboneBundleVariation(result.variationId);
+    const generatedBundleByPlacementKey = new Map(
+      generatedVariation?.ok && generatedVariation.found
+        ? (generatedVariation.instances ?? []).map((instance) =>
+          [instance.placementKey, instance.bundleId]
+        )
+        : []
+    );
     const placementsWithGeneratedIds = placements.map((placement, index) => ({
       ...placement,
-      generatedBundleId: result.generatedBundleIds?.[index] ?? placement.generatedBundleId
+      generatedBundleId: generatedBundleByPlacementKey.get(placement.id) ??
+        result.generatedBundleIds?.[index] ?? placement.generatedBundleId
     }));
     this.ctx.store.update((current) => ({
       ...current,
@@ -406,6 +688,16 @@ export class DrawActions {
       generationCallMs: generateEnd - generateStart,
       pathPoints: before.keepPathAfterGenerate ? points : [],
       pathPointSpecs: before.keepPathAfterGenerate ? pointSpecs : [],
+      wireRouteSeed: before.keepPathAfterGenerate ? before.wireRouteSeed : null,
+      wireVariationId: before.keepPathAfterGenerate ? result.variationId ?? null : null,
+      selectedRouteVariation: !before.keepPathAfterGenerate &&
+        generatedVariation?.ok && generatedVariation.found
+        ? generatedVariation
+        : current.selectedRouteVariation,
+      selectedRouteVariationControls: !before.keepPathAfterGenerate &&
+        generatedVariation?.ok && generatedVariation.found
+        ? { density: 1, heightSpread: 1, lateralSpread: 1 }
+        : current.selectedRouteVariationControls,
       showBackboneOverlay: true,
       bundleTemplates,
       drawBundlePlacements: placementsWithGeneratedIds

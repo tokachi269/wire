@@ -2,7 +2,6 @@
 
 #include "../geometry/geometry.hpp"
 #include "../lookup.hpp"
-#include "schema.hpp"
 
 #include <algorithm>
 #include <array>
@@ -17,9 +16,9 @@
 #include <sstream>
 #include <string_view>
 
-// Key names in this file are the on-disk format, not the type names. The shared
-// lateral layout is RoadLayoutTemplate in code and stays "section_template" in
-// every archive written since version 11, so saved workspaces keep loading.
+// Key names in this file are the current on-disk format, not the type names.
+// The shared lateral layout is RoadLayoutTemplate in code and remains
+// "section_template" in the archive.
 namespace city::road::persistence {
 namespace {
 
@@ -875,7 +874,6 @@ Result<std::string> SaveRoad(const SavedRoadGraph& graph,
   Result<bool> valid = ValidateAuthoritativeGraph(graph, next_id);
   if (!valid.ok) return Result<std::string>::Fail(valid.failure_category, valid.error);
   ArchiveWriter writer{};
-  writer.UInt("road_graph_version", kVersion);
   writer.UInt("next_id", next_id);
 
   const auto sections = sorted_by_id(graph.layout_templates);
@@ -1157,27 +1155,9 @@ Result<std::string> SaveRoad(const SavedRoadGraph& graph,
 }
 
 Result<LoadedRoad> LoadRoad(const std::string& text) {
-  if (!HasReadableHeader(text)) {
-    if (HasRoadHeader(text)) {
-      return Result<LoadedRoad>::Fail(CommitFailureCategory::kInvalidInput,
-                                      "legacy road graph version is unsupported");
-    }
-    return Result<LoadedRoad>::Fail(CommitFailureCategory::kInvalidInput,
-                                    "unknown road graph version");
-  }
   ArchiveReader reader{text};
   Result<bool> status = reader.Status();
   if (!status.ok) return Result<LoadedRoad>::Fail(status.failure_category, status.error);
-  Result<std::uint64_t> version = reader.RequireU64("road_graph_version");
-  if (!version.ok) return Result<LoadedRoad>::Fail(version.failure_category, version.error);
-  if (version.value != kVersion && version.value != kPreviousVersion &&
-      version.value != 14) {
-    return Result<LoadedRoad>::Fail(CommitFailureCategory::kInvalidInput,
-                                    "unknown road graph version");
-  }
-  const bool has_saved_placement = version.value >= 14;
-  const bool has_saved_corner_radius = version.value >= 15;
-  const bool has_saved_node_elevation = version.value >= 16;
   Result<std::uint64_t> next_id = reader.RequireU64("next_id");
   if (!next_id.ok) return Result<LoadedRoad>::Fail(next_id.failure_category, next_id.error);
 
@@ -1221,9 +1201,7 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
             enum_value<MarkingRole>(reader, side_prefix + ".role", 0, 5);
         Result<std::uint64_t> side_style = reader.RequireU64(side_prefix + ".style_id");
         Result<MarkingPlacement> side_placement =
-            has_saved_placement
-                ? enum_value<MarkingPlacement>(reader, side_prefix + ".placement", 0, 3)
-                : Result<MarkingPlacement>::Ok(MarkingPlacement::kCenter);
+            enum_value<MarkingPlacement>(reader, side_prefix + ".placement", 0, 3);
         if (!side_placement.ok) {
           return Result<LoadedRoad>::Fail(side_placement.failure_category,
                                           side_placement.error);
@@ -1285,10 +1263,8 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
           enum_value<MarkingRole>(reader, boundary_prefix + ".marking.role", 0, 5);
       Result<std::uint64_t> marking_style =
           reader.RequireU64(boundary_prefix + ".marking.style_id");
-      Result<MarkingPlacement> marking_placement =
-          has_saved_placement
-              ? enum_value<MarkingPlacement>(reader, boundary_prefix + ".marking.placement", 0, 3)
-              : Result<MarkingPlacement>::Ok(MarkingPlacement::kCenter);
+      Result<MarkingPlacement> marking_placement = enum_value<MarkingPlacement>(
+          reader, boundary_prefix + ".marking.placement", 0, 3);
       if (!marking_placement.ok) {
         return Result<LoadedRoad>::Fail(marking_placement.failure_category,
                                         marking_placement.error);
@@ -1390,10 +1366,7 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
     const std::string prefix = "node." + std::to_string(i);
     Result<std::uint64_t> id = reader.RequireU64(prefix + ".id");
     Result<Vec2d> position = vec2(reader, prefix + ".position");
-    Result<double> elevation =
-        has_saved_node_elevation
-            ? reader.RequireDouble(prefix + ".elevation_m")
-            : Result<double>::Ok(0.0);
+    Result<double> elevation = reader.RequireDouble(prefix + ".elevation_m");
     if (!id.ok) return Result<LoadedRoad>::Fail(id.failure_category, id.error);
     if (!position.ok) return Result<LoadedRoad>::Fail(position.failure_category, position.error);
     if (!elevation.ok) {
@@ -1537,10 +1510,7 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
         enum_value<SegmentShapeIntent>(reader, prefix + ".shape.intent", 0, 1);
     Result<Vec2d> start_handle = vec2(reader, prefix + ".shape.start_handle");
     Result<Vec2d> end_handle = vec2(reader, prefix + ".shape.end_handle");
-    Result<double> corner_radius =
-        has_saved_corner_radius
-            ? reader.RequireDouble(prefix + ".corner_radius_m")
-            : Result<double>::Ok(kDefaultRoadCornerRadiusM);
+    Result<double> corner_radius = reader.RequireDouble(prefix + ".corner_radius_m");
     if (!id.ok) return Result<LoadedRoad>::Fail(id.failure_category, id.error);
     if (!node_a.ok) return Result<LoadedRoad>::Fail(node_a.failure_category, node_a.error);
     if (!node_b.ok) return Result<LoadedRoad>::Fail(node_b.failure_category, node_b.error);

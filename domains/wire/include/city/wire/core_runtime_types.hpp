@@ -191,6 +191,7 @@ struct VisualCurvePart {
   double wire_radius_m = 0.015;
   std::uint32_t color_rgba = 0xFFFFFFFFu;
   CableMaterialStyleKind material_style = CableMaterialStyleKind::kGeneric;
+  double resolved_helix_radius_m = 0.0;
   std::vector<Vec3d> bezier_control_points{};
   std::vector<Vec3d> samples{};
   AABBd bounds{};

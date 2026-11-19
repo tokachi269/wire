@@ -761,9 +761,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C623_backbone_layout_settings_reject_before_mutation",
                          "backbone layout settings regenerate derived outputs", "Boundary", false,
                          C623_backbone_layout_settings_reject_before_mutation);
-  test_registry::AddTest(tests, "C624_backbone_variation_settings_reject_before_mutation",
-                         "backbone variation settings reject before mutation while unsupported", "Boundary", true,
-                         C624_backbone_variation_settings_reject_before_mutation);
+  test_registry::AddTest(tests, "C624_backbone_variation_settings_reshape_existing_output",
+                         "backbone variation settings reshape existing output to match fresh generation",
+                         "Differential", false, C624_backbone_variation_settings_reshape_existing_output);
   test_registry::AddTest(tests, "C625_backbone_context_profile_reject_before_mutation",
                          "backbone context profile rejects before mutation while unsupported", "Boundary", true,
                          C625_backbone_context_profile_reject_before_mutation);
@@ -831,48 +831,15 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddSourceGuardTest(tests, "C655_backbone_node_patch_grouping_uses_band_identity",
                          "backbone node patch grouping includes local band identity", "Boundary", false,
                          C655_backbone_node_patch_grouping_uses_band_identity);
-  test_registry::AddTest(tests, "C656_backbone_node_patch_does_not_mix_base_and_extra_sections",
-                         "backbone node patch does not connect base and populated span sections", "Boundary", false,
-                         C656_backbone_node_patch_does_not_mix_base_and_extra_sections);
-  test_registry::AddTest(tests, "C657_backbone_node_patch_does_not_mix_extra_instance_indices",
-                         "backbone node patch does not connect different populated section instances", "Boundary",
-                         false, C657_backbone_node_patch_does_not_mix_extra_instance_indices);
-  test_registry::AddTest(tests, "C648_population_same_seed_is_stable",
-                         "cable population is stable for the same explicit seed", "Invariant", false,
-                         C648_population_same_seed_is_stable);
-  test_registry::AddTest(tests, "C649_population_span_identity_does_not_change_placement",
-                         "cable population placement is continuous across logical spans", "Invariant", false,
-                         C649_population_span_identity_does_not_change_placement);
-  test_registry::AddTest(tests, "C650_population_reserve_blocks_candidates",
-                         "cable population reserves block candidate pairs", "Invariant", false,
-                         C650_population_reserve_blocks_candidates);
-  test_registry::AddTest(tests, "C651_population_spacing_rejects_overlap",
-                         "cable population spacing rejects overlapping candidates", "Invariant", false,
-                         C651_population_spacing_rejects_overlap);
-  test_registry::AddTest(tests, "C652_population_endpoint_failure_omits_pair",
-                         "cable population endpoint failure omits the whole pair", "Boundary", true,
-                         C652_population_endpoint_failure_omits_pair);
-  test_registry::AddTest(tests, "C653_population_rejects_duplicate_band_identity",
-                         "cable population rejects duplicate local band identity", "Boundary", true,
-                         C653_population_rejects_duplicate_band_identity);
-  test_registry::AddTest(tests, "C654_population_does_not_mutate_logical_topology",
-                         "cable population changes visual output only", "Boundary", false,
-                         C654_population_does_not_mutate_logical_topology);
-  test_registry::AddTest(tests, "C686_population_rule_on_bundle_template_adds_visual_only_sections",
-                         "bundle template population rules add derived visual sections without topology mutation",
-                         "Boundary", false, C686_population_rule_on_bundle_template_adds_visual_only_sections);
-  test_registry::AddTest(tests, "C687_population_rule_update_is_reshape_not_regenerate",
-                         "bundle template population rule edits are reshape updates instead of regenerate",
-                         "Boundary", false, C687_population_rule_update_is_reshape_not_regenerate);
   test_registry::AddTest(tests, "C730_same_kind_bundle_templates_can_coexist",
                          "bundle template identity is separate from BundleKind category",
                          "Invariant", false, C730_same_kind_bundle_templates_can_coexist);
   test_registry::AddTest(tests, "C731_backbone_spec_references_duplicate_kind_templates",
                          "backbone spec can generate two templates with the same BundleKind",
                          "Invariant", false, C731_backbone_spec_references_duplicate_kind_templates);
-  test_registry::AddTest(tests, "C732_population_rule_owner_is_bundle_template_id",
-                         "population rules are owned by BundleTemplateId, not BundleKind",
-                         "Invariant", false, C732_population_rule_owner_is_bundle_template_id);
+  test_registry::AddTest(tests, "C732_route_bundle_rule_owner_is_bundle_template_id",
+                         "route bundle rules are owned by BundleTemplateId, not BundleKind",
+                         "Invariant", false, C732_route_bundle_rule_owner_is_bundle_template_id);
   test_registry::AddTest(tests, "C733_regenerate_scope_uses_bundle_template_id",
                          "bundle template regenerate scope matches BundleTemplateId only",
                          "Invariant", false, C733_regenerate_scope_uses_bundle_template_id);
@@ -897,9 +864,6 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C693_cable_run_id_keeps_branch_and_dead_end_separate",
                          "cable run id keeps branch spans and sharp dead-end sides separate",
                          "Invariant", false, C693_cable_run_id_keeps_branch_and_dead_end_separate);
-  test_registry::AddTest(tests, "C694_cable_run_id_connects_population_instances",
-                         "cable run id connects each population instance across through spans without merging base",
-                         "Invariant", false, C694_cable_run_id_connects_population_instances);
   test_registry::AddTest(tests, "C695_cable_run_id_is_deterministic",
                          "cable run id assignment is deterministic for identical fresh states",
                          "Invariant", false, C695_cable_run_id_is_deterministic);
@@ -1309,14 +1273,6 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "normal pair keeps edge endpoint ports distinct while deriving one row fixture",
                          "Invariant", false,
                          C810_backbone_normal_pair_uses_edge_ports_and_derived_fixture);
-  test_registry::AddTest(tests, "C811_authoritative_v2_migrates_shared_pair_ports_without_visual_change",
-                         "v2 shared pair ports migrate without changing derived geometry",
-                         "Invariant", false,
-                         C811_authoritative_v2_migrates_shared_pair_ports_without_visual_change);
-  test_registry::AddTest(tests, "C812_authoritative_v2_rejects_ambiguous_shared_port_migration",
-                         "v2 shared ports without exact continuity reject before mutation",
-                         "Boundary", true,
-                         C812_authoritative_v2_rejects_ambiguous_shared_port_migration);
   test_registry::AddTest(tests, "C813_backbone_move_pole_rederives_pair_representation",
                          "MovePole preserves endpoint identity while switching patch and jumper representation",
                          "Invariant", false,
@@ -1360,10 +1316,6 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "duplicate span binding span ids are rejected on authoritative load",
                          "Boundary", true,
                          C841_backbone_span_binding_duplicate_span_rejected_on_load);
-  test_registry::AddTest(tests, "C842_backbone_legacy_edge_bundle_span_ids_are_read_and_dropped",
-                         "legacy edge bundle span ids are consumed on load and omitted on save",
-                         "Boundary", false,
-                         C842_backbone_legacy_edge_bundle_span_ids_are_read_and_dropped);
   test_registry::AddTest(tests, "C843_backbone_continuity_binding_rejects_incomplete_lane_relation",
                          "continuity construction rejects a missing authoritative lane relation without mutation",
                          "Boundary", true,
@@ -1400,6 +1352,110 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "fixed-count decrease retires lanes within each independent Bundle component",
                          "Invariant", false,
                          C851_backbone_fixed_count_decrease_retires_each_bundle_component_lanes);
+  test_registry::AddTest(tests, "C866_backbone_range_bundle_count_reconciles_exact_identity",
+                         "range-count update reconciles only the exact Bundle while preserving surviving lane identity",
+                         "Invariant", false,
+                         C866_backbone_range_bundle_count_reconciles_exact_identity);
+  test_registry::AddTest(tests, "C867_backbone_range_bundle_count_retirement_conflicts_are_atomic",
+                         "range-count retirement rejects user attachments and manual Ports atomically",
+                         "Boundary", true,
+                         C867_backbone_range_bundle_count_retirement_conflicts_are_atomic);
+  test_registry::AddTest(tests, "C868_backbone_bundle_count_policy_rejects_invalid_individual_change",
+                         "fixed and range count policies reject invalid individual Bundle count changes without mutation",
+                         "Boundary", true,
+                         C868_backbone_bundle_count_policy_rejects_invalid_individual_change);
+  test_registry::AddTest(tests, "C869_backbone_exact_bundle_retirement_removes_only_target_topology",
+                         "exact Bundle retirement removes its full saved topology while preserving a peer on the same route",
+                         "Invariant", true,
+                         C869_backbone_exact_bundle_retirement_removes_only_target_topology);
+  test_registry::AddTest(tests, "C870_backbone_exact_bundle_retirement_covers_cross_and_sharp_outputs",
+                         "exact Bundle retirement follows cross components and removes sharp derived output",
+                         "Boundary", true,
+                         C870_backbone_exact_bundle_retirement_covers_cross_and_sharp_outputs);
+  test_registry::AddTest(tests, "C871_backbone_exact_bundle_retirement_conflicts_are_atomic",
+                         "exact Bundle retirement rejects user attachments, manual Ports, and Span overrides atomically",
+                         "Boundary", true,
+                         C871_backbone_exact_bundle_retirement_conflicts_are_atomic);
+  test_registry::AddTest(tests, "C872_backbone_exact_bundle_retirement_rejects_incomplete_binding_scope",
+                         "exact Bundle retirement fails closed when its saved binding scope is incomplete",
+                         "Boundary", true,
+                         C872_backbone_exact_bundle_retirement_rejects_incomplete_binding_scope);
+  test_registry::AddTest(tests, "C873_backbone_add_instance_clones_exact_saved_membership",
+                         "exact Bundle instance addition clones saved edge membership and lane continuity with fresh identities",
+                         "Invariant", true,
+                         C873_backbone_add_instance_clones_exact_saved_membership);
+  test_registry::AddTest(tests, "C874_backbone_add_instance_clones_branch_cross_and_sharp",
+                         "exact Bundle instance addition clones anchor branch/cross/sharp relations without re-pairing",
+                         "Invariant", true,
+                         C874_backbone_add_instance_clones_branch_cross_and_sharp);
+  test_registry::AddTest(tests, "C875_backbone_add_instance_rejects_invalid_identity_and_source_edge",
+                         "exact Bundle instance addition rejects duplicate placement and source-edge dependency atomically",
+                         "Boundary", true,
+                         C875_backbone_add_instance_rejects_invalid_identity_and_source_edge);
+  test_registry::AddTest(tests, "C876_backbone_add_instance_rejects_incomplete_anchor_relations",
+                         "exact Bundle instance addition fails closed on incomplete anchor binding or lane continuity",
+                         "Boundary", true,
+                         C876_backbone_add_instance_rejects_incomplete_anchor_relations);
+  test_registry::AddTest(tests, "C877_backbone_reconcile_preserves_survivors_and_updates_concrete_values",
+                         "concrete Bundle reconcile is a no-op for equality and preserves Bundle and lane identity across placement and range-count updates",
+                         "Invariant", true,
+                         C877_backbone_reconcile_preserves_survivors_and_updates_concrete_values);
+  test_registry::AddTest(tests, "C878_backbone_reconcile_adds_retires_and_restores_exact_set",
+                         "concrete Bundle reconcile composes exact add and retire atomically while preserving surviving placement identities",
+                         "Invariant", true,
+                         C878_backbone_reconcile_adds_retires_and_restores_exact_set);
+  test_registry::AddTest(tests, "C879_backbone_reconcile_is_order_independent_across_saved_topologies",
+                         "concrete Bundle reconcile ignores input order and preserves branch cross sharp saved topology through save-load",
+                         "Invariant", true,
+                         C879_backbone_reconcile_is_order_independent_across_saved_topologies);
+  test_registry::AddTest(tests, "C880_backbone_reconcile_failures_are_outer_transaction_atomic",
+                         "late retire and source-edge add failures roll back every earlier concrete Bundle reconcile edit",
+                         "Boundary", true,
+                         C880_backbone_reconcile_failures_are_outer_transaction_atomic);
+  test_registry::AddTest(tests, "C881_backbone_reconcile_rejects_invalid_scope_and_desired_specs",
+                         "concrete Bundle reconcile rejects ambiguous identity template count placement and anchor inputs without mutation",
+                         "Boundary", true,
+                         C881_backbone_reconcile_rejects_invalid_scope_and_desired_specs);
+  test_registry::AddTest(tests, "C882_backbone_variation_descriptor_is_atomically_associated_and_persisted",
+                         "route Bundle variation validates resolved identity in transactions and loads persisted concrete scope without rerolling",
+                         "Invariant", true,
+                         C882_backbone_variation_descriptor_is_atomically_associated_and_persisted);
+  test_registry::AddTest(tests, "C883_backbone_variation_apply_reconciles_concrete_scope_atomically",
+                         "explicit variation Apply preserves surviving placement identity and atomically reconciles density and placement",
+                         "Differential", true,
+                         C883_backbone_variation_apply_reconciles_concrete_scope_atomically);
+  test_registry::AddTest(tests, "C884_backbone_variation_zero_count_retires_and_readd_is_unsupported",
+                         "zero-count variation retires physical topology and later re-add without a live exact source is unsupported atomically",
+                         "Boundary", true,
+                         C884_backbone_variation_zero_count_retires_and_readd_is_unsupported);
+  test_registry::AddTest(tests, "C885_backbone_variation_apply_preserves_branch_cross_sharp_membership",
+                         "variation extension and Apply preserve exact saved branch cross and sharp membership",
+                         "Invariant", true,
+                         C885_backbone_variation_apply_preserves_branch_cross_sharp_membership);
+  test_registry::AddTest(tests, "C886_backbone_variation_placement_identity_is_scope_local",
+                         "same-seed variations may share placement correlation keys while physical Bundle identity and Apply scope remain independent",
+                         "Boundary", true,
+                         C886_backbone_variation_placement_identity_is_scope_local);
+  test_registry::AddTest(tests, "C888_variation_branch_pick_uses_exact_live_scope",
+                         "variation branch pick derives selected templates from exact live instances instead of descriptor rules",
+                         "Boundary", true,
+                         C888_variation_branch_pick_uses_exact_live_scope);
+  test_registry::AddSourceGuardTest(tests, "C892_generic_pipeline_and_rebuild_do_not_read_variation_retention",
+                         "generic pipeline and loaded-output rebuild derive live topology without variation retention scans",
+                         "Boundary", false,
+                         C892_generic_pipeline_and_rebuild_do_not_read_variation_retention);
+  test_registry::AddTest(tests, "C894_non_hv_sharp_jumper_keeps_two_port_g1_contract",
+                         "non-HV sharp rows keep the current two-port jumper representation and sampled endpoint G1",
+                         "Invariant", false,
+                         C894_non_hv_sharp_jumper_keeps_two_port_g1_contract);
+  test_registry::AddTest(tests, "C895_route_variation_controls_resolve_and_apply_full_range",
+                         "route variation density and spread controls resolve and atomically apply across the exposed evaluation range",
+                         "Differential", false,
+                         C895_route_variation_controls_resolve_and_apply_full_range);
+  test_registry::AddTest(tests, "C896_visual_curve_semantics_are_stable_without_asset_catalog_knowledge",
+                         "Core sag curves and resolved helix axis/radius remain stable without asset catalog knowledge",
+                         "Invariant", false,
+                         C896_visual_curve_semantics_are_stable_without_asset_catalog_knowledge);
   test_registry::AddTest(tests, "C852_backbone_near_angle_row_order_uses_degree_contract",
                          "near-angle physical rows use degree ordering independent of path direction",
                          "Invariant", false,
@@ -1416,6 +1472,33 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "non-Auto main spans use one CableTemplate sag ratio with a parabolic profile",
                          "Invariant", false,
                          C855_backbone_non_auto_main_span_sag_is_parabolic_once);
+  test_registry::AddTest(tests, "C856_route_bundle_variation_is_seed_stable_and_seed_sensitive",
+                         "route bundle variation is stable for one seed and differs for representative seeds",
+                         "Invariant", false, C856_route_bundle_variation_is_seed_stable_and_seed_sensitive);
+  test_registry::AddTest(tests, "C857_route_bundle_variation_obeys_side_envelopes",
+                         "route bundle variation stays on one side and obeys authored envelopes without inventing cross-Bundle clearance",
+                         "Invariant", false, C857_route_bundle_variation_obeys_side_envelopes);
+  test_registry::AddTest(tests, "C858_route_bundle_variation_creates_only_requested_authoritative_topology",
+                         "communication-only variation creates ordinary topology for only requested templates",
+                         "Boundary", false, C858_route_bundle_variation_creates_only_requested_authoritative_topology);
+  test_registry::AddTest(tests, "C860_route_bundle_variation_survives_save_load_and_acute_corner",
+                         "resolved route placement survives save/load and an acute multi-bundle corner",
+                         "Invariant", false, C860_route_bundle_variation_survives_save_load_and_acute_corner);
+  test_registry::AddTest(tests, "C861_route_bundle_variation_incremental_extension_preserves_existing_output",
+                         "incremental extension reuses resolved placements and preserves existing spans",
+                         "Invariant", false, C861_route_bundle_variation_incremental_extension_preserves_existing_output);
+  test_registry::AddTest(tests, "C862_non_hv_route_variation_covers_each_category_and_keeps_hv_fixed",
+                         "non-HV route variation covers each category while HV remains fixed",
+                         "Invariant", false, C862_non_hv_route_variation_covers_each_category_and_keeps_hv_fixed);
+  test_registry::AddTest(tests, "C863_non_hv_support_rows_are_shared_and_direct_attachment_stays_direct",
+                         "compatible supported bundles share rows and near-pole bundles stay direct",
+                         "Invariant", false, C863_non_hv_support_rows_are_shared_and_direct_attachment_stays_direct);
+  test_registry::AddTest(tests, "C864_non_hv_span_visual_variation_preserves_attachment_contracts",
+                         "non-HV main and connection curves preserve attachment authority while visual members keep one compact two-dimensional cross-section",
+                         "Invariant", false, C864_non_hv_span_visual_variation_preserves_attachment_contracts);
+  test_registry::AddTest(tests, "C865_non_hv_support_and_member_shape_survive_save_load",
+                         "visual member cross-sections survive rebuild and save-load while Optical remains contained by its shared helix",
+                         "Invariant", false, C865_non_hv_support_and_member_shape_survive_save_load);
   test_registry::AddTest(tests, "C803_model_mount_graph_resolves_depth_four_chain",
                          "model mount graph resolves socket-parent chains to depth four and rejects invalid links",
                          "Invariant", false,

@@ -91,6 +91,73 @@ std::string JoinSorted(const T& values) {
   return out.str();
 }
 
+const char* AssertionKindName(AssertionKind kind) {
+  switch (kind) {
+  case AssertionKind::kOracle:
+    return "oracle";
+  case AssertionKind::kAnchor:
+    return "anchor";
+  case AssertionKind::kPresence:
+    return "presence";
+  case AssertionKind::kDifferential:
+    return "differential";
+  case AssertionKind::kDerivedEquality:
+    return "derived_equality";
+  }
+  return "";
+}
+
+std::vector<std::string> LedgerRowCells(const std::string& line) {
+  std::vector<std::string> cells{};
+  std::string cell{};
+  for (char character : line) {
+    if (character == '|') {
+      cells.push_back(cell);
+      cell.clear();
+      continue;
+    }
+    cell.push_back(character);
+  }
+  cells.push_back(cell);
+  for (std::string& value : cells) {
+    const std::size_t begin = value.find_first_not_of(" \t");
+    const std::size_t end = value.find_last_not_of(" \t");
+    value = begin == std::string::npos ? std::string{} : value.substr(begin, end - begin + 1);
+  }
+  if (!cells.empty() && cells.front().empty()) {
+    cells.erase(cells.begin());
+  }
+  if (!cells.empty() && cells.back().empty()) {
+    cells.pop_back();
+  }
+  return cells;
+}
+
+std::set<std::string> BacktickTokens(const std::string& text) {
+  std::set<std::string> tokens{};
+  std::size_t at = text.find('`');
+  while (at != std::string::npos) {
+    const std::size_t end = text.find('`', at + 1);
+    if (end == std::string::npos) {
+      break;
+    }
+    tokens.insert(text.substr(at + 1, end - at - 1));
+    at = text.find('`', end + 1);
+  }
+  return tokens;
+}
+
+std::string JoinAspects(const std::set<std::string>& values) {
+  std::string out{};
+  for (const std::string& value : values) {
+    if (!out.empty()) {
+      out += " ";
+    }
+    out += value;
+  }
+  return out.empty() ? std::string{"none"} : out;
+}
+
 } // namespace
 
 void AddTest(TestRegistry& tests, const char* case_id, const char* intent, const char* oracle, bool abnormal,
@@ -288,6 +355,115 @@ bool ValidateSpecLedger(const TestRegistry& tests, std::string* error) {
     return false;
   }
 
+  return true;
+}
+
+bool ValidateRecordedEvidence(const TestRegistry& tests, std::string* error) {
+  // Evidence列は実行時に記録したassertion種別と一致させる (宣言だけの付与と種別を失う回帰を防ぐ)
+  std::ifstream in(WIRE_TEST_SPEC_LEDGER_PATH);
+  if (!in.is_open()) {
+    if (error != nullptr) {
+      *error = std::string("unable to open ") + WIRE_TEST_SPEC_LEDGER_PATH;
+    }
+    return false;
+  }
+  const std::set<std::string> runtime_aspects{"anchor", "derived_equality", "differential",
+                                              "oracle", "presence"};
+  const std::set<std::string> known_aspects{
+      "anchor",   "derived_equality", "differential", "legacy_unclassified",
+      "metamorphic", "oracle", "presence", "source_guard"};
+  std::unordered_map<std::string, TestFamily> family_by_case{};
+  for (const TestCase& test : tests) {
+    family_by_case[CasePrefix(test.case_id)] = test.family;
+  }
+  std::unordered_map<std::string, std::set<std::string>> recorded_by_case{};
+  for (const auto& [case_id, kinds] : CompletedEvidence()) {
+    std::set<std::string> names{};
+    for (AssertionKind kind : kinds) {
+      names.insert(AssertionKindName(kind));
+    }
+    recorded_by_case[CasePrefix(case_id.c_str())] = names;
+  }
+  std::vector<std::string> problems{};
+  const std::regex row_pattern(R"(\|\s*(C\d+)\s*\|)");
+  std::string line;
+  while (std::getline(in, line)) {
+    std::smatch match;
+    if (!std::regex_search(line, match, row_pattern) || match.size() < 2) {
+      continue;
+    }
+    const std::string id = match[1].str();
+    const std::vector<std::string> cells = LedgerRowCells(line);
+    if (cells.size() < 5) {
+      problems.push_back(id + ": ledger row has no evidence cell");
+      continue;
+    }
+    const std::set<std::string> declared = BacktickTokens(cells[4]);
+    if (declared.empty()) {
+      problems.push_back(id + ": evidence cell is empty");
+      continue;
+    }
+    bool unknown = false;
+    for (const std::string& token : declared) {
+      if (!known_aspects.contains(token)) {
+        problems.push_back(id + ": unknown evidence " + token);
+        unknown = true;
+      }
+    }
+    if (unknown) {
+      continue;
+    }
+    if (declared.contains("legacy_unclassified")) {
+      if (declared.size() != 1) {
+        problems.push_back(id + ": legacy_unclassified must stand alone");
+      }
+      continue;
+    }
+    const auto family_it = family_by_case.find(id);
+    const bool source_guard_family =
+        family_it != family_by_case.end() && family_it->second == TestFamily::kSourceGuard;
+    if (declared.contains("source_guard") != source_guard_family) {
+      problems.push_back(id + (source_guard_family
+                                   ? ": source_guard family is not declared"
+                                   : ": source_guard is declared for a behavior case"));
+      continue;
+    }
+    std::set<std::string> declared_runtime{};
+    for (const std::string& token : declared) {
+      if (runtime_aspects.contains(token)) {
+        declared_runtime.insert(token);
+      }
+    }
+    if (declared_runtime.empty()) {
+      continue;
+    }
+    const auto recorded_it = recorded_by_case.find(id);
+    const std::set<std::string> recorded =
+        recorded_it == recorded_by_case.end() ? std::set<std::string>{} : recorded_it->second;
+    std::set<std::string> missing{};
+    for (const std::string& token : declared_runtime) {
+      if (!recorded.contains(token)) {
+        missing.insert(token);
+      }
+    }
+    if (!missing.empty()) {
+      problems.push_back(id + ": declared [" + JoinAspects(declared_runtime) + "] but recorded [" +
+                         JoinAspects(recorded) + "]");
+    }
+  }
+  if (!problems.empty()) {
+    if (error != nullptr) {
+      std::ostringstream out;
+      for (std::size_t i = 0; i < problems.size(); ++i) {
+        if (i > 0) {
+          out << "; ";
+        }
+        out << problems[i];
+      }
+      *error = out.str();
+    }
+    return false;
+  }
   return true;
 }
 

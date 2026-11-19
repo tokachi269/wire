@@ -1211,6 +1211,11 @@ EditResult<bool> CoreState::refresh_backbone_rows_for_incident_edges(
     if (edge.node_a != moved_node->node_id && edge.node_b != moved_node->node_id) {
       continue;
     }
+    const auto live = runtime_.backbone_index.edge_bundles.find(edge.edge_id);
+    if (live == runtime_.backbone_index.edge_bundles.end() ||
+        live->second.empty()) {
+      continue;
+    }
     changed_edges.insert(edge.edge_id);
     affected_nodes.insert(edge.node_a);
     affected_nodes.insert(edge.node_b);
@@ -1845,7 +1850,8 @@ EditResult<bool> CoreState::UpdateVisualSettings(const VisualSettings& settings,
 
   EditResult<UpdatePlan> plan{};
   if (changed) {
-    plan = make_update_plan({UpdateKind::kRedraw, UpdateTargetKind::kAllSpans, kInvalidObjectId});
+    plan = make_update_plan({UpdateKind::kRedraw, UpdateTargetKind::kAllSpans,
+                             kInvalidObjectId});
     if (!plan.ok) {
       result.error = plan.error;
       return result;
@@ -1889,13 +1895,27 @@ EditResult<bool> CoreState::UpdateVariationSettings(const VariationSettings& set
       std::abs(normalized.sag_variation_scale - current.sag_variation_scale) > kStrictLengthToleranceM ||
       std::abs(normalized.branch_down_offset_variation_scale - current.branch_down_offset_variation_scale) > kStrictLengthToleranceM;
 
-  if (changed && !authoritative_.backbone.span_bindings.empty()) {
-    result.error = "backbone unsupported: variation settings are not consumed by generated outputs";
-    return result;
+  EditResult<UpdatePlan> plan{};
+  if (changed) {
+    plan = make_update_plan({UpdateKind::kReshape, UpdateTargetKind::kAllSpans,
+                             kInvalidObjectId});
+    if (!plan.ok) {
+      result.error = plan.error;
+      return result;
+    }
   }
   authoritative_.variation_settings = normalized;
   result.ok = true;
   result.value = changed;
+  if (changed) {
+    const auto updated = execute_update_plan(plan.value);
+    if (!updated.ok) {
+      result.error = updated.error;
+      result.ok = false;
+      return result;
+    }
+    result.change_set.updated_ids = plan.value.affected.spans;
+  }
   return result;
 }
 
@@ -1943,6 +1963,18 @@ EditResult<bool> CoreState::UpdateBundleTemplate(const BundleTemplate& bundle_te
   return state_internal::TemplateMutationService::UpdateBundleTemplate(*this, bundle_template);
 }
 
+EditResult<bool> CoreState::UpdateBackboneBundleConductorCount(ObjectId bundle_id, int conductor_count) {
+  if (backbone_bundle_variation_for_bundle(bundle_id) != nullptr) {
+    EditResult<bool> result{};
+    result.error =
+        "backbone unsupported: recipe-backed Bundle instance must be changed by explicit variation Apply";
+    result.classify_error();
+    return result;
+  }
+  return state_internal::TemplateMutationService::UpdateBackboneBundleConductorCount(
+      *this, bundle_id, conductor_count);
+}
+
 EditResult<bool> CoreState::UpdateBackboneBundlePlacement(ObjectId bundle_id, bool placement_explicit,
                                                           double height_m, double lateral_m, double spacing_m) {
   EditResult<bool> result;
@@ -1951,15 +1983,21 @@ EditResult<bool> CoreState::UpdateBackboneBundlePlacement(ObjectId bundle_id, bo
     result.error = "core invalid input: bundle not found";
     return result;
   }
+  if (backbone_bundle_variation_for_bundle(bundle_id) != nullptr) {
+    result.error =
+        "backbone unsupported: recipe-backed Bundle instance must be changed by explicit variation Apply";
+    result.classify_error();
+    return result;
+  }
   if (!std::isfinite(height_m) || !std::isfinite(lateral_m) || !std::isfinite(spacing_m) || spacing_m <= 0.0) {
     result.error = "core invalid input: bundle placement is invalid";
     return result;
   }
   if (bundle->placement_explicit == placement_explicit &&
-      std::abs(bundle->height_m - height_m) <= kStrictLengthToleranceM &&
-      std::abs(bundle->lateral_m - lateral_m) <= kStrictLengthToleranceM &&
-      std::abs(bundle->phase_spacing_m - spacing_m) <= kStrictLengthToleranceM &&
-      std::abs(bundle->spacing_override_m - spacing_m) <= kStrictLengthToleranceM) {
+      bundle->height_m == height_m &&
+      bundle->lateral_m == lateral_m &&
+      bundle->phase_spacing_m == spacing_m &&
+      bundle->spacing_override_m == spacing_m) {
     result.ok = true;
     result.value = false;
     return result;

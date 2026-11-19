@@ -229,14 +229,9 @@ struct SpanVisualAssemblyTemplate {
   bool helix_enabled = false;
   double helix_radius_m = 0.0;
   double helix_clearance_m = 0.0;
-  double helix_turns_per_meter = 0.0;
-  int helix_samples_per_turn = 16;
   double endpoint_trim_m = 0.0;
-  double member_wander_ratio = 0.0;
-  double member_wander_wavelength_m = 0.0;
-  double member_wander_phase_bias = 0.0;
-  double member_twist_turns_per_meter = 0.0;
-  double member_twist_phase = 0.0;
+  int visual_member_count = 1;
+  double visual_member_spacing_m = 0.0;
 };
 
 struct BundleTemplate {
@@ -339,6 +334,40 @@ struct BackboneBundleSpec {
   ObjectId source_bundle_id = kInvalidObjectId;
   // Existing Bundle identity used only by saved-scope regeneration.
   ObjectId existing_bundle_id = kInvalidObjectId;
+};
+
+struct BackboneBundleReconcileEntry {
+  BackboneBundleSpec desired{};
+  // Required only when desired.placement_key is absent from current_bundle_ids.
+  ObjectId anchor_bundle_id = kInvalidObjectId;
+};
+
+struct BackboneBundleReconcileInput {
+  // Exact current membership; the operation never discovers scope by category or geometry.
+  std::vector<ObjectId> current_bundle_ids{};
+  std::vector<BackboneBundleReconcileEntry> desired_bundles{};
+};
+
+// Human-authored route envelope. Resolution emits ordinary
+// BackboneBundleSpec entries. A top-level variation operation may persist this
+// input for explicit Apply; load never resolves or rerolls it.
+struct RandomBackboneBundleRule {
+  BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
+  int min_instances = 0;
+  int max_instances = 0;
+  int conductor_count = 0;
+  double height_min_m = 0.0;
+  double height_max_m = 0.0;
+  double lateral_abs_min_m = 0.0;
+  double lateral_abs_max_m = 0.0;
+};
+
+struct RouteBundleVariationInput {
+  std::uint64_t route_seed = 0;
+  // -1/+1 is explicit. Zero resolves one route-wide side from PoleType bands.
+  int preferred_side_sign = 0;
+  PoleTypeId pole_type_id = kInvalidPoleTypeId;
+  std::vector<RandomBackboneBundleRule> rules{};
 };
 
 struct BackboneSpec {

@@ -25,6 +25,7 @@ struct CoreStateIdentityStorage {
 struct CoreStateAuthoritativeStorage {
   EditState edit_state{};
   SavedBackboneGraph backbone{};
+  std::vector<SavedBackboneBundleVariation> backbone_bundle_variations{};
   std::unordered_map<PoleTypeId, PoleTypeDefinition> pole_types{};
   std::unordered_map<CableTemplateId, CableTemplate> cable_templates{};
   std::unordered_map<BundleTemplateId, BundleTemplate> bundle_templates{};

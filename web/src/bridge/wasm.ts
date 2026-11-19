@@ -1,5 +1,8 @@
 import type {
   BundlePlacement,
+  RandomBundleRule,
+  RouteBundleVariationResult,
+  BackboneBundleVariationInfo,
   BundleTemplateInfo,
   CableTemplateInfo,
   BackboneEdgeInfo,
@@ -20,7 +23,8 @@ import type {
   SupportNodeInfo,
   VisualPartInfo,
   VisualModelInstanceInfo,
-  VisualSettings
+  VisualSettings,
+  VariationSettings
 } from "../model";
 import type { RoadSegmentInput } from "../road";
 import type { RoadSectionInput } from "../road_templates";
@@ -49,6 +53,56 @@ export interface WireStateHandle {
     maxTiltDeg: number,
     nodeSpecs?: Array<{ pointIndex: number; supportKind: number; nodeId: string }>
   ): EditResult;
+  generateBundleVariation(
+    points: Float64Array,
+    rules: RandomBundleRule[],
+    routeSeed: number,
+    preferredSideSign: number,
+    intervalM: number,
+    poleTypeId: number,
+    directionMode: number,
+    maxTiltDeg: number,
+    nodeSpecs?: Array<{ pointIndex: number; supportKind: number; nodeId: string }>
+  ): EditResult;
+  extendBundleVariation(
+    variationId: string,
+    points: Float64Array,
+    intervalM: number,
+    poleTypeId: number,
+    directionMode: number,
+    maxTiltDeg: number,
+    nodeSpecs?: Array<{ pointIndex: number; supportKind: number; nodeId: string }>
+  ): EditResult;
+  previewBundleVariation(
+    points: Float64Array,
+    rules: RandomBundleRule[],
+    routeSeed: number,
+    preferredSideSign: number,
+    intervalM: number,
+    poleTypeId: number,
+    directionMode: number,
+    maxTiltDeg: number,
+    nodeSpecs?: Array<{ pointIndex: number; supportKind: number; nodeId: string }>
+  ): EditResult & {
+    parts: VisualPartInfo[];
+    models: VisualModelInstanceInfo[];
+    samples: Float64Array;
+    poles: PoleInfo[];
+  };
+  previewExtendBundleVariation(
+    variationId: string,
+    points: Float64Array,
+    intervalM: number,
+    poleTypeId: number,
+    directionMode: number,
+    maxTiltDeg: number,
+    nodeSpecs?: Array<{ pointIndex: number; supportKind: number; nodeId: string }>
+  ): EditResult & {
+    parts: VisualPartInfo[];
+    models: VisualModelInstanceInfo[];
+    samples: Float64Array;
+    poles: PoleInfo[];
+  };
   previewPlacements(
     points: Float64Array,
     bundlePlacements: BundlePlacement[],
@@ -70,6 +124,10 @@ export interface WireStateHandle {
   previewResolveBranchPick(
     input: PathPickInfo,
     selectedBundleTemplateIds: number[]
+  ): ResolvedPathPointInfo;
+  resolveBundleVariationBranchPick(
+    input: PathPickInfo,
+    variationId: string
   ): ResolvedPathPointInfo;
   clearPendingSupportNodes(): OperationResult;
   lastGenerationTiming(): GenerationTiming;
@@ -101,6 +159,21 @@ export interface WireStateHandle {
     poleTypeId: number,
     count: number
   ): DefaultBundlePlacementInfo;
+  resolveRouteBundleVariation(
+    rules: RandomBundleRule[],
+    routeSeed: number,
+    preferredSideSign: number,
+    poleTypeId: number
+  ): RouteBundleVariationResult;
+  backboneBundleVariationForBundle(bundleId: string): BackboneBundleVariationInfo;
+  backboneBundleVariation(variationId: string): BackboneBundleVariationInfo;
+  applyBackboneBundleVariation(
+    variationId: string,
+    rules: RandomBundleRule[],
+    routeSeed: number,
+    preferredSideSign: number,
+    poleTypeId: number
+  ): OperationResult;
   updateBackboneBundlePlacement(bundleId: string, placement: BundlePlacement): OperationResult;
   applyRelatedPoleType(bundleTemplateId: number): OperationResult;
   cableTemplateCount(): number;
@@ -118,6 +191,8 @@ export interface WireStateHandle {
   updateLayoutSettings(settings: LayoutSettings): OperationResult;
   visualSettings(): VisualSettings;
   updateVisualSettings(settings: VisualSettings): OperationResult;
+  variationSettings(): VariationSettings;
+  updateVariationSettings(settings: VariationSettings): OperationResult;
   applyPoleTilt(poleIds: string[], maxTiltDeg: number): OperationResult;
   resetSpanReferenceLengths(): OperationResult;
   saveState(): string;

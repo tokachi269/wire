@@ -18,6 +18,7 @@ import {
   type LoadedModelAsset,
   modelAssetCache
 } from "./modelAssets";
+import { materializeWirePattern } from "./wirePatternAssets";
 
 function colorFromRgba(rgba: number): { color: THREE.Color; opacity: number } {
   const red = (rgba >>> 24) & 0xff;
@@ -1566,6 +1567,7 @@ export class WireScene {
         part.info.materialStyle,
         part.info.colorRgba,
         part.info.sampleCount,
+        part.info.resolvedHelixRadius,
         sampleContentVersion(part.samples)
       ].join(":");
       const previous = this.partMeshes.get(key);
@@ -1583,8 +1585,20 @@ export class WireScene {
       }
 
       const radius = THREE.MathUtils.clamp(part.info.wireRadius, 0.006, 0.08);
+      let renderedSamples: Float64Array;
+      try {
+        renderedSamples = materializeWirePattern(part.info, part.samples);
+      } catch (error) {
+        console.error(`[wire] pattern asset unavailable for ${key}: ${String(error)}`);
+        if (previous !== undefined) {
+          this.disposeContentMesh(previous.mesh);
+          this.partMeshes.delete(key);
+          changed = true;
+        }
+        continue;
+      }
       const materialKey = `${part.info.supplementalKind}:${part.info.materialStyle}:${part.info.colorRgba}`;
-      if (previous !== undefined && this.updateSampledTubeGeometry(previous.mesh.geometry, part.samples, radius)) {
+      if (previous !== undefined && this.updateSampledTubeGeometry(previous.mesh.geometry, renderedSamples, radius)) {
         if (previous.materialKey !== materialKey) {
           this.disposeMeshMaterial(previous.mesh);
           previous.mesh.material = this.makePartMaterial(part);
@@ -1599,7 +1613,7 @@ export class WireScene {
         this.disposeContentMesh(previous.mesh);
         this.partMeshes.delete(key);
       }
-      const geometry = makeSampledTubeGeometry(part.samples, radius);
+      const geometry = makeSampledTubeGeometry(renderedSamples, radius);
       const material = this.makePartMaterial(part);
       const mesh = new THREE.Mesh(geometry, material);
       mesh.castShadow = true;

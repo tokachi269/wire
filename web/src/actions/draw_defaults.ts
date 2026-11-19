@@ -1,5 +1,4 @@
 import type { BundlePlacement, BundleTemplateInfo, DefaultBundlePlacementInfo } from "../model";
-import { DEFAULT_BUNDLE_PRESET } from "../profile/defaultBundlePreset";
 
 export type BundlePlacementDefaultResolver = (
   bundleTemplateId: number,
@@ -26,24 +25,6 @@ export function bundlePlacementDefault(
     offset: resolved.offset,
     spacing: resolved.spacing
   };
-}
-
-export function defaultBundlePlacements(
-  templates: BundleTemplateInfo[]
-): BundlePlacement[] {
-  return DEFAULT_BUNDLE_PRESET.flatMap((row) => {
-    const template = templates.find((item) => item.id === row.bundleTemplateId);
-    if (template === undefined) return [];
-    return [{
-      id: row.id,
-      bundleTemplateId: template.id,
-      count: row.count,
-      explicit: true,
-      height: row.height,
-      offset: row.offset,
-      spacing: template.defaultSpacing
-    }];
-  });
 }
 
 export function placementUsesTransientZeroDefaults(placements: BundlePlacement[]): boolean {

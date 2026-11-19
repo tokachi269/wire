@@ -135,7 +135,8 @@ bool collect_cable_decision_regenerate_scopes(const CoreState& state,
 }
 
 bool collect_bundle_regenerate_scopes(const CoreState& state, BundleTemplateId bundle_template_id,
-                                      std::vector<BundleRegenerateScope>* scopes, std::string* error) {
+                                      std::vector<BundleRegenerateScope>* scopes, std::string* error,
+                                      ObjectId exact_bundle_id = kInvalidObjectId) {
   const SavedBackboneGraph& graph = state.view().backbone();
   const std::unordered_map<ObjectId, std::vector<ObjectId>> neighbors = row_continuity_neighbors(graph);
   std::vector<ObjectId> covered{};
@@ -144,7 +145,8 @@ bool collect_bundle_regenerate_scopes(const CoreState& state, BundleTemplateId b
       continue;
     }
     const Bundle* bundle = state.view().bundles().find(edge_bundle.bundle_id);
-    if (bundle == nullptr || bundle->bundle_template_id != bundle_template_id) {
+    if (bundle == nullptr || bundle->bundle_template_id != bundle_template_id ||
+        (exact_bundle_id != kInvalidObjectId && bundle->id != exact_bundle_id)) {
       continue;
     }
     BundleRegenerateScope scope{};
@@ -349,13 +351,9 @@ bool population_rules_equal(const std::vector<CablePopulationRule>& a,
 bool span_visual_assembly_equals(const SpanVisualAssemblyTemplate& a, const SpanVisualAssemblyTemplate& b) {
   return a.support_path_enabled == b.support_path_enabled &&
          a.helix_enabled == b.helix_enabled && a.helix_radius_m == b.helix_radius_m &&
-         a.helix_clearance_m == b.helix_clearance_m && a.helix_turns_per_meter == b.helix_turns_per_meter &&
-         a.helix_samples_per_turn == b.helix_samples_per_turn && a.endpoint_trim_m == b.endpoint_trim_m &&
-         a.member_wander_ratio == b.member_wander_ratio &&
-         a.member_wander_wavelength_m == b.member_wander_wavelength_m &&
-         a.member_wander_phase_bias == b.member_wander_phase_bias &&
-         a.member_twist_turns_per_meter == b.member_twist_turns_per_meter &&
-         a.member_twist_phase == b.member_twist_phase;
+         a.helix_clearance_m == b.helix_clearance_m && a.endpoint_trim_m == b.endpoint_trim_m &&
+         a.visual_member_count == b.visual_member_count &&
+         a.visual_member_spacing_m == b.visual_member_spacing_m;
 }
 
 enum BundleTemplateChange : std::uint8_t {
@@ -648,6 +646,79 @@ EditResult<bool> TemplateMutationService::UpdateCableTemplate(CoreState& state, 
   return result;
 }
 
+EditResult<bool> TemplateMutationService::UpdateBackboneBundleConductorCount(
+    CoreState& state, ObjectId bundle_id, int conductor_count,
+    const BundleTemplate* previous_template,
+    const BundleTemplate* next_template) {
+  EditResult<bool> result{};
+  const Bundle* bundle = state.authoritative_.edit_state.bundles.find(bundle_id);
+  if (bundle == nullptr) {
+    result.error = "core invalid input: bundle not found";
+    return result;
+  }
+  const auto stored_template_it = state.authoritative_.bundle_templates.find(bundle->bundle_template_id);
+  if (stored_template_it == state.authoritative_.bundle_templates.end()) {
+    result.error = "core invalid input: bundle template not found";
+    return result;
+  }
+  const BundleTemplate& previous = previous_template == nullptr ? stored_template_it->second : *previous_template;
+  const BundleTemplate& next = next_template == nullptr ? stored_template_it->second : *next_template;
+  if (previous.id != bundle->bundle_template_id || next.id != bundle->bundle_template_id) {
+    result.error = "backbone unsupported: bundle count update template identity mismatch";
+    return result;
+  }
+  if (!bundle_count_matches_policy(*bundle, previous)) {
+    result.error = "backbone unsupported: bundle count is not synchronized with previous template";
+    return result;
+  }
+  const bool requested_count_is_valid = next.count_rule == BundleCountRuleKind::kFixed
+                                            ? conductor_count == next.fixed_count
+                                            : conductor_count >= next.min_count && conductor_count <= next.max_count;
+  if (!requested_count_is_valid) {
+    result.error = next.count_rule == BundleCountRuleKind::kFixed
+                       ? "backbone unsupported: fixed Bundle count cannot be changed individually"
+                       : "backbone unsupported: requested Bundle count is outside template range";
+    return result;
+  }
+  if (bundle->conductor_count == conductor_count) {
+    result.ok = true;
+    result.value = false;
+    return result;
+  }
+
+  std::vector<BundleRegenerateScope> scopes{};
+  if (!collect_bundle_regenerate_scopes(state, bundle->bundle_template_id, &scopes, &result.error,
+                                        bundle_id)) {
+    return result;
+  }
+  if (scopes.empty()) {
+    result.error = "backbone unsupported: Bundle count update requires saved backbone continuity";
+    return result;
+  }
+
+  CoreState trial = state;
+  ChangeSet changes{};
+  const CoreState::BackboneLaneCountTransition transition{bundle->conductor_count, conductor_count};
+  for (const BundleRegenerateScope& scope : scopes) {
+    auto regenerated = trial.regenerate_backbone_edge_bundles(
+        bundle->bundle_template_id, previous, next, &changes, nullptr, &scope.edge_bundle_ids, nullptr,
+        CoreState::BackboneRegenerateCause::kBundleCount, &transition);
+    if (!regenerated.ok) {
+      result.error = regenerated.error;
+      return result;
+    }
+  }
+  CoreState::add_unique_id(changes.updated_ids, bundle_id);
+  state.identity_ = trial.identity_;
+  state.authoritative_ = trial.authoritative_;
+  state.runtime_ = trial.runtime_;
+  state.debug_ = trial.debug_;
+  result.ok = true;
+  result.value = true;
+  result.change_set = std::move(changes);
+  return result;
+}
+
 EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state, const BundleTemplate& bundle_template) {
   EditResult<bool> result;
   auto it = state.authoritative_.bundle_templates.find(bundle_template.id);
@@ -699,19 +770,15 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
   const SpanVisualAssemblyTemplate& assembly = normalized.span_visual_assembly;
   if (!std::isfinite(assembly.helix_radius_m) || assembly.helix_radius_m < 0.0 ||
       !std::isfinite(assembly.helix_clearance_m) || assembly.helix_clearance_m < 0.0 ||
-      !std::isfinite(assembly.helix_turns_per_meter) || assembly.helix_turns_per_meter < 0.0 ||
-      assembly.helix_samples_per_turn < 4 || !std::isfinite(assembly.endpoint_trim_m) ||
-      assembly.endpoint_trim_m < 0.0 || !std::isfinite(assembly.member_wander_ratio) ||
-      assembly.member_wander_ratio < 0.0 || assembly.member_wander_ratio > 1.0 ||
-      !std::isfinite(assembly.member_wander_wavelength_m) ||
-      !std::isfinite(assembly.member_wander_phase_bias) ||
-      !std::isfinite(assembly.member_twist_turns_per_meter) || !std::isfinite(assembly.member_twist_phase) ||
-      (assembly.member_wander_ratio > 0.0 && assembly.member_wander_wavelength_m <= 0.0)) {
+      !std::isfinite(assembly.endpoint_trim_m) ||
+      assembly.endpoint_trim_m < 0.0 || assembly.visual_member_count < 1 ||
+      !std::isfinite(assembly.visual_member_spacing_m) || assembly.visual_member_spacing_m < 0.0 ||
+      (assembly.visual_member_count > 1 && assembly.visual_member_spacing_m <= 0.0)) {
     result.error = "core invalid input: span visual assembly settings are invalid";
     return result;
   }
   if (assembly.helix_enabled &&
-      (!assembly.support_path_enabled || assembly.helix_turns_per_meter <= 0.0)) {
+      !assembly.support_path_enabled) {
     result.error = "core invalid input: enabled span visual assembly requires a support path and positive helix turns";
     return result;
   }
@@ -812,26 +879,37 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
       }
     }
     if (!affected_bundle_ids.empty()) {
-      std::vector<BundleRegenerateScope> scopes{};
-      if (!collect_bundle_regenerate_scopes(state, normalized.id, &scopes, &result.error)) {
-        return result;
-      }
-      if (scopes.empty()) {
-        result.error = "backbone unsupported: bundle policy changes require regeneration";
-        return result;
-      }
-
       normalized.version += 1;
       CoreState trial = state;
       ChangeSet regenerated_changes{};
-      for (const BundleRegenerateScope& scope : scopes) {
-        auto regenerated = trial.regenerate_backbone_edge_bundles(
-            normalized.id, previous, normalized, &regenerated_changes, nullptr, &scope.edge_bundle_ids, nullptr,
-            (changes & kTopology) != 0 ? CoreState::BackboneRegenerateCause::kBundleTopology
-                                        : CoreState::BackboneRegenerateCause::kBundleCount);
-        if (!regenerated.ok) {
-          result.error = regenerated.error;
+      if (fixed_count_change) {
+        for (ObjectId bundle_id : affected_bundle_ids) {
+          auto regenerated = UpdateBackboneBundleConductorCount(
+              trial, bundle_id, normalized.fixed_count, &previous, &normalized);
+          if (!regenerated.ok) {
+            result.error = regenerated.error;
+            return result;
+          }
+          append_unique(regenerated_changes.created_ids, regenerated.change_set.created_ids);
+          append_unique(regenerated_changes.updated_ids, regenerated.change_set.updated_ids);
+          append_unique(regenerated_changes.deleted_ids, regenerated.change_set.deleted_ids);
+        }
+      } else {
+        std::vector<BundleRegenerateScope> scopes{};
+        if (!collect_bundle_regenerate_scopes(state, normalized.id, &scopes, &result.error) || scopes.empty()) {
+          if (result.error.empty()) {
+            result.error = "backbone unsupported: bundle policy changes require regeneration";
+          }
           return result;
+        }
+        for (const BundleRegenerateScope& scope : scopes) {
+          auto regenerated = trial.regenerate_backbone_edge_bundles(
+              normalized.id, previous, normalized, &regenerated_changes, nullptr, &scope.edge_bundle_ids, nullptr,
+              CoreState::BackboneRegenerateCause::kBundleTopology);
+          if (!regenerated.ok) {
+            result.error = regenerated.error;
+            return result;
+          }
         }
       }
       trial.authoritative_.bundle_templates[normalized.id] = normalized;

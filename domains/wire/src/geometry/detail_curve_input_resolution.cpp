@@ -8,7 +8,9 @@
 #include "curve_support.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
+#include <tuple>
 
 namespace city::wire {
 
@@ -179,14 +181,40 @@ ResolvedSpanCurveInputs resolve_span_curve_inputs(const CoreState& state, const 
   const SpanRuntimeState* runtime = view.find_span_runtime_state(span.id);
   inputs.variation_flow_key = variation_flow_key_for_span(runtime, span);
   VariationContext sag_variation_context{};
-  sag_variation_context.world_position = {(a.x + b.x) * 0.5, (a.y + b.y) * 0.5, (a.z + b.z) * 0.5};
-  sag_variation_context.flow_key = inputs.variation_flow_key;
-  sag_variation_context.pole_id = (pole_a == nullptr) ? kInvalidObjectId : pole_a->id;
-  sag_variation_context.secondary_pole_id = (pole_b == nullptr) ? kInvalidObjectId : pole_b->id;
-  sag_variation_context.local_key = static_cast<std::uint64_t>(span.id);
+  // Sag variation belongs to the saved Bundle/lane and route support geometry.
+  // Rebuilding a Span must not reroll it through transient Span ids or Port placement.
+  sag_variation_context.world_position = {};
+  sag_variation_context.pole_id = kInvalidObjectId;
+  sag_variation_context.secondary_pole_id = kInvalidObjectId;
+  std::uint64_t local_key = bundle == nullptr
+      ? static_cast<std::uint64_t>(span.layer)
+      : (bundle->placement_key == 0
+             ? static_cast<std::uint64_t>(bundle->bundle_template_id)
+             : bundle->placement_key);
+  if (pole_a != nullptr && pole_b != nullptr) {
+    Vec3d first = pole_a->world_transform.position;
+    Vec3d second = pole_b->world_transform.position;
+    if (std::tie(second.x, second.y, second.z) < std::tie(first.x, first.y, first.z)) {
+      std::swap(first, second);
+    }
+    for (double component : {first.x, first.y, first.z, second.x, second.y, second.z}) {
+      local_key = support::hash_combine(local_key, std::bit_cast<std::uint64_t>(component));
+    }
+  }
+  const auto span_binding = std::ranges::find_if(view.backbone().span_bindings,
+      [&](const SavedBackboneSpanBinding& binding) { return binding.span_id == span.id; });
+  if (span_binding != view.backbone().span_bindings.end()) {
+    local_key = support::hash_combine(local_key,
+                                      static_cast<std::uint64_t>(span_binding->lane_index));
+  }
+  sag_variation_context.flow_key = local_key;
+  sag_variation_context.local_key = local_key;
   inputs.sag_variation = EvaluateHierarchicalVariation(view.variation_settings(), sag_variation_context);
-  const double sag_multiplier =
-      std::max(0.0, 1.0 + inputs.sag_variation.final_value * view.variation_settings().sag_variation_scale);
+  const double sag_multiplier = bundle_template != nullptr &&
+          bundle_template->category != ConnectionCategory::kHighVoltage
+      ? std::max(0.0, 1.0 + inputs.sag_variation.final_value *
+                            view.variation_settings().sag_variation_scale)
+      : 1.0;
   inputs.effective_sag_ratio =
       (view.geometry_settings().sag_enabled && inputs.basis_length > kLengthToleranceM) ? (sag_ratio * sag_multiplier) : 0.0;
   return inputs;

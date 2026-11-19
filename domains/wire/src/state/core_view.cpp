@@ -21,6 +21,36 @@ const ObjectStore<Bundle>& CoreView::bundles() const { return state_.authoritati
 const ObjectStore<Span>& CoreView::spans() const { return state_.authoritative_.edit_state.spans; }
 const ObjectStore<Attachment>& CoreView::attachments() const { return state_.authoritative_.edit_state.attachments; }
 const SavedBackboneGraph& CoreView::backbone() const { return state_.authoritative_.backbone; }
+const std::vector<SavedBackboneBundleVariation>& CoreView::backbone_bundle_variations() const {
+  return state_.authoritative_.backbone_bundle_variations;
+}
+const SavedBackboneBundleVariation* CoreView::backbone_bundle_variation(ObjectId variation_id) const {
+  const auto found = std::find_if(
+      state_.authoritative_.backbone_bundle_variations.begin(),
+      state_.authoritative_.backbone_bundle_variations.end(),
+      [&](const SavedBackboneBundleVariation& value) {
+        return value.variation_id == variation_id;
+      });
+  return found == state_.authoritative_.backbone_bundle_variations.end()
+             ? nullptr
+             : &*found;
+}
+const SavedBackboneBundleVariation* CoreView::backbone_bundle_variation_for_bundle(
+    ObjectId bundle_id) const {
+  const auto found = std::find_if(
+      state_.authoritative_.backbone_bundle_variations.begin(),
+      state_.authoritative_.backbone_bundle_variations.end(),
+      [bundle_id](const SavedBackboneBundleVariation& value) {
+        return std::ranges::any_of(
+            value.instances,
+            [bundle_id](const SavedBackboneBundleVariationInstance& instance) {
+              return instance.bundle_id == bundle_id;
+            });
+      });
+  return found == state_.authoritative_.backbone_bundle_variations.end()
+             ? nullptr
+             : &*found;
+}
 
 const ConnectionIndex& CoreView::connection_index() const { return state_.runtime_.connection_index; }
 const RelationIndex& CoreView::relation_index() const { return state_.runtime_.relation_index; }
@@ -376,6 +406,8 @@ BackboneFrontier CoreView::pole_frontier(ObjectId pole_id) const {
   add_frontier_node(state_.authoritative_.backbone, out.node_id, &out);
   if (const auto edges = index.node_edges.find(out.node_id); edges != index.node_edges.end()) {
     for (ObjectId edge_id : edges->second) {
+      const auto live = index.edge_bundles.find(edge_id);
+      if (live == index.edge_bundles.end() || live->second.empty()) continue;
       add_frontier_edge(state_.authoritative_.backbone, index, edge_id, &out);
     }
   }

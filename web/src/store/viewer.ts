@@ -15,6 +15,9 @@ import type {
   VisualModelInstanceInfo,
   VisualPartInfo,
   VisualSettings,
+  VariationSettings,
+  RouteVariationControls,
+  BackboneBundleVariationInfo,
   WireIntervalRequest
 } from "../model";
 import { CommitFailureCategory, type CommitFailure, type OperationResult } from "../model";
@@ -81,6 +84,12 @@ export interface ViewerSnapshot {
   bundleTemplates: BundleTemplateInfo[];
   selectedBundleTemplateId: number | null;
   drawBundlePlacements: BundlePlacement[];
+  drawBundleSource: "variation" | "manual";
+  wireRouteSeed: number | null;
+  wireVariationId: string | null;
+  routeVariation: RouteVariationControls;
+  selectedRouteVariation: BackboneBundleVariationInfo | null;
+  selectedRouteVariationControls: RouteVariationControls;
   cableTemplates: CableTemplateInfo[];
   selectedCableTemplateId: number | null;
   poleTemplates: PoleTemplateInfo[];
@@ -88,6 +97,7 @@ export interface ViewerSnapshot {
   geometry: GeometrySettings;
   layout: LayoutSettings;
   visual: VisualSettings;
+  variation: VariationSettings;
   interaction: {
     controlId: string;
     param: string;
@@ -147,6 +157,12 @@ export function createViewerSnapshot(): ViewerSnapshot {
     bundleTemplates: [],
     selectedBundleTemplateId: null,
     drawBundlePlacements: [],
+    drawBundleSource: "variation",
+    wireRouteSeed: null,
+    wireVariationId: null,
+    routeVariation: { density: 1, heightSpread: 1, lateralSpread: 1 },
+    selectedRouteVariation: null,
+    selectedRouteVariationControls: { density: 1, heightSpread: 1, lateralSpread: 1 },
     cableTemplates: [],
     selectedCableTemplateId: null,
     poleTemplates: [],
@@ -167,6 +183,17 @@ export function createViewerSnapshot(): ViewerSnapshot {
       enableInsulators: true,
       insulatorRadius: 0.07,
       insulatorLength: 0.16
+    },
+    variation: {
+      enabled: true,
+      globalSeed: 1,
+      worldCellSize: 40,
+      worldBiasScale: 0.35,
+      flowBiasScale: 0.4,
+      poleDeltaScale: 0.18,
+      localJitterScale: 0.07,
+      sagVariationScale: 0.12,
+      branchDownOffsetVariationScale: 0
     },
     interaction: null,
     logs: [],

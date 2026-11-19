@@ -5,6 +5,7 @@
 #include "city/wire/coord_utils.hpp"
 
 #include "../../geometry/curve/curve.hpp"
+#include "../../geometry/detail_curve_input_resolution.hpp"
 #include "../../geometry/detail_curve_postprocess.hpp"
 
 #include <algorithm>
@@ -61,13 +62,21 @@ curve_input_data make_curve_input_data(const CoreState& state, ObjectId span_id,
       if (bundle_template != state.view().bundle_templates().end()) {
         const auto cable = state.view().cable_templates().find(bundle_template->second.cable_template_id);
         if (cable != state.view().cable_templates().end()) {
-          sag_ratio = cable->second.sag_factor;
           radius_m = std::max(0.0, cable->second.outer_diameter_m * 0.5);
-          data.continuity_policy = cable->second.continuity_policy;
-          data.bend_stiffness_hint = cable->second.bend_stiffness;
-          data.min_bend_radius_hint_m = cable->second.min_bend_radius_m;
         }
       }
+    }
+    const Port* port_a = state.view().ports().find(span->port_a_id);
+    const Port* port_b = state.view().ports().find(span->port_b_id);
+    if (port_a != nullptr && port_b != nullptr) {
+      const Pole* pole_a = state.view().poles().find(port_a->owner_pole_id);
+      const Pole* pole_b = state.view().poles().find(port_b->owner_pole_id);
+      const ResolvedSpanCurveInputs resolved = resolve_span_curve_inputs(
+          state, *span, *port_a, *port_b, pole_a, pole_b, start, end, Length(end - start));
+      sag_ratio = resolved.effective_sag_ratio;
+      data.continuity_policy = resolved.continuity_preference;
+      data.bend_stiffness_hint = resolved.bend_stiffness_hint;
+      data.min_bend_radius_hint_m = resolved.min_bend_radius_hint_m;
     }
   }
   sag_ratio = std::max(0.0, sag_ratio);
@@ -174,21 +183,8 @@ EditResult<DetailCurve> make_primary_curve_between_impl(const CoreState& state, 
   const GeometrySettings& settings = state.view().geometry_settings();
   const curve_input_data data = make_curve_input_data(state, span_id, start, end, start_tangent_hint, end_tangent_hint);
   if (data.continuity_policy != CableContinuityPolicyHint::kAuto) {
-    double sag_ratio = settings.sag_factor;
-    const Span* span = state.view().spans().find(span_id);
-    if (span != nullptr) {
-      const Bundle* bundle = state.view().bundles().find(span->bundle_id);
-      if (bundle != nullptr) {
-        const auto bundle_template = state.view().bundle_templates().find(bundle->bundle_template_id);
-        if (bundle_template != state.view().bundle_templates().end()) {
-          const auto cable = state.view().cable_templates().find(bundle_template->second.cable_template_id);
-          if (cable != state.view().cable_templates().end()) {
-            sag_ratio = cable->second.sag_factor;
-          }
-        }
-      }
-    }
-    sag_ratio = std::max(0.0, sag_ratio);
+    const double sag_ratio = data.chord_length > kLengthToleranceM
+        ? data.input.sag_m / data.chord_length : 0.0;
     const double endpoint_sag_ratio = sag_ratio * 0.5;
     const CurveConstraint start_constraint =
         detail_curve_constraint(start, data.input.start_tangent_hint, settings, endpoint_sag_ratio, data.continuity_policy,

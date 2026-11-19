@@ -14,19 +14,7 @@
 
 ## 失敗時の責務
 
-### CoreのEditResult
-
-`EditResult`は人間向けの`error`文字列に加えて、機械可読な`CommitFailureCategory`と`reason_code`を返す。
-
-旧説明にあった次の3分類は、現在のenum値ではない。外部入力不正、未対応、内部不整合という診断の性質を表していた。
-
-- `kValidation`: 外部入力が不正で、ユーザー入力またはadapter payloadを直せばよいもの。
-- `kUnsupported`: 入力は読めたが、当時の仕様で扱わないもの。旧説明では分類に迷う既存errorもここへ寄せていた。
-- `kInternal`: 保存済み正本や派生再構築の整合が壊れており、通常操作では起きてはいけないもの。
-
-現在は下表と[確定操作の失敗分類](../editor/commit_failure_categories.md)の5分類を使う。Coreは`core_edit_types.hpp`の`ClassifyCommitFailure`で分類し、未知のerrorは`InternalError`とする。旧説明の曖昧なerrorを未対応へ寄せる方針は適用しない。
-
-既存の`error`文字列は診断情報として維持する。境界adapterは`effective_failure_category()`で分類済み値を読み、表示層は文字列prefixを再解釈しない。下表は描画操作の境界で失敗を担当する箇所を示し、Coreの分類とは別の正本を作らない。
+分類とreason codeの意味は[確定操作の失敗分類](../editor/commit_failure_categories.md)を正本とする。Coreは`core_edit_types.hpp`の`ClassifyCommitFailure`で分類し、未知のerrorは`InternalError`とする。下表は描画操作の境界でWireのどこが失敗を担当するかを示す。
 
 | 担当 | 入力条件 | 分類 | 通常描画への影響 |
 |---|---|---|---|
@@ -35,8 +23,6 @@
 | topology/layoutの解決 | 意味のあるtopologyだが未実装 | `NotImplemented` | 入力不正ではなく、実装の保留事項として扱う |
 | 描画session | 参照するanchorやバージョンが古くなった | `StateConflict` | anchorを更新して再試行する |
 | backbone/model assembly | 保存binding、row、fixture、生成endpointが不変条件に違反した | `InternalError` | 対応済み経路の不具合として扱う |
-
-過去のroute繰り返し生成の失敗は`InternalError`だった。局所生成のcontextが接続済みendpointのrow frameを置き換え、モデルassemblyがfixture dataの不整合を報告していた。現在はendpoint contextを維持し、モデルを含むroute繰り返し生成のfixtureで再発を防ぐ。
 
 ## sessionの動作
 

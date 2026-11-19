@@ -147,13 +147,13 @@ Request
   -> Commit(authoritative + derived + next_id)
 ```
 
-検証、unsupported、generate、不変条件のどこで失敗しても、authoritative serialization bytes、derived deterministic hash、next ID、inspection / query結果は操作前と完全一致する。
+検証、unsupported、generate、不変条件のどこで失敗しても、正本を直列化したbyte列、派生出力の決定的なhash、次のID、inspection / queryの結果は操作前と完全一致する。
 
-public操作から別public操作を呼ばない。ApplyはplanにないID確保、接続判断、fallbackを行わない。splitは`target_segment_id + segment_distance_m`を使い、target識別情報やdistanceを座標から再推測しない。
+公開操作から別の公開操作を呼ばない。ApplyはplanにないID確保、接続判断、fallbackを行わない。splitは`target_segment_id + segment_distance_m`を使い、target識別情報やdistanceを座標から再推測しない。
 
 degree 1のcorridor終端への同一道路延長は`ExtendCorridorFromEnd`として新しいnodeとsegmentを同じplanで追加する。既存segment、既存node位置、既存handleをreplaceしない。corridor先頭への延長は、既存corridor distance参照の移行規則がないためunsupportedとする。
 
-segment間の滑らかさは隣接する二つのsegmentだけを入力とするderived connection幾何が担当する。
+segment間の滑らかさは、隣接する二つのsegmentだけを入力として導出するconnectionの幾何で表す。
 
 `EditSegmentPath`相当の外部入力はcoreで次へ分ける。
 
@@ -197,15 +197,15 @@ authoritative graph
 
 ### derive_segments
 
-`CanonicalAlignment`、semantic distance、surface distance、`SectionEvaluation`を`DerivedSegment`が所有する。sampling planやsection tableを独立した長寿命readモデルとして公開しない。
+`CanonicalAlignment`、semantic distance、surface distance、`SectionEvaluation`を`DerivedSegment`が所有する。sampling planやsection tableを、独立して長期間保持する読み取り用モデルとして公開しない。
 
 単独segmentとdegree 1終端は、connection側の解決を要求せずにこの段階だけで面とmarkingに必要な形状を持つ。
 
 ### resolve_connections
 
-degree 2以上の接続nodeについて、接続種別、approach順、auto setback、ユーザーoverride、gate frame、corner / junction幾何を一度に決める。autoとresolvedを別工程・別tableにしない。`ResolvedApproach`がauto値とresolved値を両方持ち、inspectionはそこから読む。
+degree 2以上の接続nodeについて、接続種別、approach順、auto setback、ユーザーoverride、gate frame、corner / junction幾何を一度に決める。自動計算値と解決済みの値を、別の工程や表に分けない。`ResolvedApproach`がauto値とresolved値を両方持ち、inspectionはそこから読む。
 
-degree 0/1のnodeにはconnection entity、gate、layoutを作らない。
+degree 0/1のnodeには、connectionを表すエンティティ、gate、layoutを作らない。
 
 接続前にpair、mapping、gateを正本へ用意する構造は持たない。必要な接続はgraphから導出する。一般的な斜交接続を固定の最小・最大角度だけで拒否しない。junctionのauto setbackは各approachの実断面外半幅、隣接approachとの交差角、共通corner radiusの接線長から個別に導出し、必要距離をsegment内へ確保できない場合や有限な境界幾何を生成できない場合だけを`unsupported`とする。
 
@@ -241,7 +241,7 @@ asphalt、sidewalk、median等の面的surfaceは`MeshUvMapping::kWorld`を使�
 
 transitionでDerived上のpatchが分かれても、各patch内のU/Vはmeter単位であり、幅が6mから12mへ変わっただけで同じV spanへ正規化しない。junction interiorのように単一の道路方向がない面はworld XYのmeter座標を使う。
 
-方向を持つsweep surface、つまりgutter、curb、将来のparapet、高架側面、retaining wall等は`MeshUvMapping::kPatchQuantized`を使う。設定は`PatchUvSettings`で表し、現行defaultは`reference_length_m=64.0`、`seam_divisions=4`である。
+方向を持つsweep surface、つまりgutter、curb、将来のparapet、高架側面、retaining wall等は`MeshUvMapping::kPatchQuantized`を使う。設定は`PatchUvSettings`で表し、現在の既定値は`reference_length_m=64.0`、`seam_divisions=4`である。
 
 safe seamの長さは`reference_length_m / seam_divisions`で、patch lengthを最も近いsafe seam数へ丸める。短いpatchでも最低1 intervalを割り当て、Uは1を超えてよい。現在のprocedural sectionではUをpatch長手方向、Vを評価済み断面profileのcontour累積距離から生成する。
 
@@ -283,7 +283,7 @@ manual markingのstyle IDは保存だけでなくemit入力へ渡し、生成mes
 - lane endpointは`LaneEndpointKey`、境界endpointは`BoundaryEndpointKey`の完全一致だけで識別する。
   lane/boundaryの横方向順序、world位置、距離、sample indexから接続先を推測しない。
 - `almost_same`やdistance-epsはBezier連続性、ゼロ長、平行性など数値幾何だけに使える。
-- 同位置に複数nodeが存在しても別識別情報である。
+- 同じ位置に複数のnodeが存在しても、別のIDで識別する。
 
 ## Lane topology ownership
 
@@ -333,7 +333,7 @@ merge/splitの長い接続区間resolverとは分け、共通のG1 cubic primiti
 
 segment間の接続白線は`DerivedBoundaryPath`を唯一の幾何入力とする。marking生成は境界endpointやlane centerから別Bezierを作らない。Split区間はsource境界のrole/style、Merge区間はtarget境界のrole/styleを使い、Continuationでrole/styleが変わる場合はunsupportedとする。
 
-接続線はjunction ownershipでgate間だけを所有する。
+接続線はjunctionに所属させ、gate間の区間だけを持たせる。
 
 ## Approach override lifecycle
 
@@ -422,9 +422,9 @@ curb幅や段差の代わりには使わない。車道外側線はcarriageway�
 
 同じIDのsurface stripまたは進行方向が変わる遷移、およびcollapse edgeが一意でない遷移はunsupportedとする。物理外形の変化とlane数の変化は独立であり、固定外形内の再配分と外側拡幅の両方を同じ補間で扱う。
 
-現行スキーマは局所segment、corridor、directed ref、section strip、lane allocation、lane connection、境界continuation、layoutのalignment offset、境界profile、segment corner radius、RoadNode elevationをnamedフィールドで保存する。
+現行スキーマは局所segment、corridor、directed ref、section strip、lane allocation、lane connection、境界continuation、layoutのalignment offset、境界profile、segment corner radius、RoadNode elevationを名前付きのフィールドで保存する。
 
-欠落フィールドやバージョンフィールドを含むarchiveは現行スキーマではないためrejectする。保存互換を保証する段階になった時点でversioningとmigrationを改めて導入する。corridor長、累積distance、connection幾何、evaluated elevation、3D frameは派生なので保存しない。
+欠落フィールドやバージョンフィールドを含むarchiveは現行スキーマではないため拒否する。保存互換を保証する段階になった時点でversioningとmigrationを改めて導入する。corridor長、累積distance、connection幾何、evaluated elevation、3D frameは派生なので保存しない。
 
 ## Boundary profile
 

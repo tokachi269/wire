@@ -10,7 +10,7 @@
 - OutlinerがPoles/Ports/Spansをフラットに全行インライン展開し、Portsがpole数×band数で
   数百行になり画面を占有する(`DrawObjectList`の無制限`Selectable`)。
 - Bundle placementとPole band詳細が同じ表に混ざり、生成するBundle数を編集できない。
-- 生成の全体設定と、選択オブジェクトの編集が同じ列に常時同居する。累進的開示が無い。
+- 生成の全体設定と、選択オブジェクトの編集が同じ列に常時同居する。段階的開示が無い。
 
 ## リージョン構成
 
@@ -18,17 +18,17 @@
 
 | region | 位置 | 内容 | 幅の目安 |
 |---|---|---|---|
-| top bar | 上・全幅 | mode切替、generate、pause | 全幅 |
+| top bar | 上・全幅 | モード切替、generate、pause | 全幅 |
 | left | 左 | scene tree(outliner) | 狭・固定 |
 | center | 中央 | 3D viewport(遮らない) | 可変・最大 |
-| right | 右 | draw path、scene settings、テンプレートeditor、selection inspector | 中・固定 |
+| right | 右 | draw path、scene settings、テンプレートの編集画面、selection inspector | 中・固定 |
 | bottom | 下・折りたたみ可 | diagnostics / log / error | 全幅・低 |
 
-## 選択状態 → 右 inspector
+## 選択状態と右側のinspector
 
-右regionは常時表示する操作群と、選択に応じて内容を差し替える`SelectionInspector`を分ける。選択詳細をOutlinerに混ぜない。
+右リージョンでは、常時表示する操作群と、選択に応じて内容を差し替える`SelectionInspector`を分ける。選択詳細をOutlinerに混ぜない。
 
-| 選択 | inspector内容 |
+| 選択 | inspectorの内容 |
 |---|---|
 | 未選択 | scene: 生成設定、geometry/layout、visualキャッシュ、camera |
 | pole | pole placement(表)、tilt、poleテンプレートapply、advanced(折りたたみ) |
@@ -47,13 +47,13 @@
 - Height / Offsetはpole local中心軸からの絶対値。初期行はPoleテンプレートのband既定位置から設定し、
   Heightの高い順（HV先頭）に並べる。未使用のDropは表示しない。
 - categoryはBundleTemplateの属性であり、行識別情報や複製可否には使わない。全categoryで同じ操作を使う。
-- 行のhoverまたはkeyboard focusで`＋`を表示し、その配置recordを直後へ複製する。
+- 行へポインターを重ねるか、キーボードでフォーカスを移すと`＋`を表示する。その配置レコードを直後へ複製する。
 - `＋`後は並べ替えず、保持しているplacement順をそのまま表示する。削除操作は置かない。
-- 同じBundleTemplateを複数行から参照できる。各行はGenerate時に別Bundle識別情報になる。
-- Pole typeの`Port bands`と`Anchor slots`はplacement表ではない。テンプレートeditorのadvanced詳細として
+- 同じBundleTemplateを複数行から参照できる。生成時には、各行に別のIDを持つBundleを作る。
+- Pole typeの`Port bands`と`Anchor slots`はplacement表ではない。テンプレートの編集画面のadvanced詳細として
   既定折りたたみにし、Bundle placementへ平均値を再入力しない。
 
-## 累進的開示
+## 段階的開示
 
 - Advanced Port Bands、Anchor Slots、Junction Debug、Visual Cache内部値は既定折りたたみにする。
 - P1(編集操作と主要表示)を最初に見せる。
@@ -61,14 +61,14 @@
 ## 反映モデル
 
 - スライダのdrag policyはoperations.mdの更新クラス列に従う。
-  kRedraw/kReshape/kRepositionは操作中も反映する。更新頻度は制限する、regenerate級・構造差分はrelease-onlyか無効化。
-- kReshapeの操作中に反映では`preferred_visible_span_ids`を必ず渡す(既存`UpdateCableTemplate`機構)。
+  kRedraw/kReshape/kRepositionは、更新頻度を制限しながら操作中も反映する。regenerate級の変更や構造差分は、操作終了時だけ反映するか、操作を無効にする。
+- kReshapeで操作中の変更を反映するときは、`preferred_visible_span_ids`を必ず渡す(既存`UpdateCableTemplate`機構)。
 - 明示Applyボタンはregenerate級・構造差分にのみ置く。
-- 操作中フラグはstore側に持つ(`interaction`)。previewとcommitは同じcore APIを呼び、
-  ログ/undoはcommitにだけ紐づける。coreにtransient/preview概念を追加しない。
+- 操作中フラグはstore側に持つ(`interaction`)。previewとcommitは同じCore APIを呼び、
+  ログの記録とUndoへの登録はcommit時だけ行う。Coreに一時状態やプレビューの概念を追加しない。
 - 暗黙の連続呼び出しを禁止する。現行の「Apply Pole/Bundle Template成功後に
   `ApplyBundleRelatedPoleTypeToExistingPoles`を自動で呼ぶ」挙動は移植しない。related適用は独立ボタンにする。
-- 全操作の`EditResult.error`をbottom diagnosticsに直接表示する。ログにだけ記録して表示を省略しない。
+- 全操作の`EditResult.error`を画面下部の診断領域に直接表示する。ログにだけ記録して表示を省略しない。
 
 ## 非対象
 

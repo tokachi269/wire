@@ -251,7 +251,7 @@ def check_architecture_documents(root: Path) -> list[str]:
     required_tokens = {
         "docs/architecture.md": (
             "# Repository architecture",
-            "## Domain着手条件",
+            "## ドメインの実装に着手する条件",
             "## State layers",
             "## Operations and build",
             "## Dependency direction",
@@ -384,7 +384,7 @@ def check_draw_interaction_contract(root: Path) -> list[str]:
         "docs/road/supported_operations.md": (
             "## 通常描画で対応する構成",
             "## 製品要件による制約",
-            "## failureのowner",
+            "## 失敗時の責務",
             "road_path_self_intersection",
         ),
         "docs/wire/supported_operations.md": (

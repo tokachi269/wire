@@ -1,12 +1,12 @@
-# Model方針
+# モデル方針
 
-この文書は、自動生成placeholder(円柱pole等)から自作モデル(電柱、碍子、変圧器、端子函、広告等)へ品質を上げるための設計方針をまとめる。特定のゲームエンジンは前提にしない。
+この文書は、円柱で表した電柱などの自動生成placeholderを、電柱、碍子、変圧器、端子函、広告などの自作モデルへ置き換える際の設計方針をまとめる。特定のゲームエンジンは前提にしない。
 
 ## 位置づけ
 
-`architecture.md`と`../architecture.md`の境界を変えない。coreはbackend非依存のcurve、bounds、モデルassembly、style参照を出力し、mesh assetはadapter側で解決する。coreはmeshを読まない。 adapterはローカル測定値を渡し、world配置と電線接続点はcoreが決める。
+`architecture.md`と`../architecture.md`の境界を変えない。Coreはbackendに依存しないcurve、bounds、model assembly、styleへの参照を出力する。mesh assetはadapter側で解決し、Coreはmeshを読まない。adapterはローカル座標での測定値を渡し、ワールド座標での配置と電線接続点はCoreが決める。
 
-## 3層構造
+## モデルの3層構造とCoreテンプレート
 
 | 層 | 内容 |
 |---|---|
@@ -15,7 +15,7 @@
 | model assembly template | 配置に使うpart、socket、local transform。core正本 |
 | core template | `PoleTypeDefinition` / `BundleTemplate`等。assembly idを参照する |
 
-descriptorはengine非依存の数値契約であり、エンジン決定前に固定できる。bbox等の抽出はdescriptorを生成するimportツールの仕事で、coreには入れない。
+descriptorはエンジンに依存しない数値契約であり、エンジンを決める前に固定できる。bbox等の抽出は、descriptorを作るインポート処理で行い、Coreには入れない。
 
 BundleTemplateの識別情報は`BundleTemplateId`とし、`BundleKind`は分類タグとしてだけ使う。asset / descriptor / viewerはkindからテンプレートを一意に推測しない。同じkindのテンプレートが複数ある場合も、参照・編集・population/regenerate scopeは必ず`BundleTemplateId`で渡す。
 
@@ -25,11 +25,11 @@ kindで探すAPIはgrouping/filterとして複数idを返し、`BundleKind`か�
 
 ## 接続点: markerを正、bboxは粗い初期値
 
-- 接続点(socket)はDCC内のnamed marker(empty等)、またはasset固有adapterが明示するローカルanchorを正本にする。
+- 接続点(socket)はDCC内のnamed marker(empty等)、またはasset固有のadapterが明示するローカルanchorを正本にする。
   bboxから取れるのは全高・接地半径などの粗い値だけで、碍子の線受けや函の端子位置は原理的に出ない。
 - 調整はDCC内でmarkerを移動して行う。アプリ内の数値入力では調整しない。
 - scene内の近傍幾何からsocketを補完しない。markerが無いassetは、生成前bootstrapでadapterが
-  モデルdescriptorへ安定名付きanchorを明示する。
+  model descriptorへ安定名付きanchorを明示する。
 
 ## 測定とoverrideの分離
 
@@ -78,7 +78,7 @@ kindで探すAPIはgrouping/filterとして複数idを返し、`BundleKind`か�
 - 何角柱として描くか、LODをどう切り替えるかはrender/asset側の都合とする。部品配置は、pole local frame上の高さ、角度、半径方向offsetで表す。meshの面番号は使わない。
 - 長さ別meshやend-middle-end分割を検討する対象は、横柱、腕金、吊り金具、クランプ列、バンド付き部品、端部形状を持つケーブル装飾などに限定する。電柱本体は対象にしない。
 
-## 自作modelとfitの境界
+## 自作モデルとfitの境界
 
 | 種別 | 扱い |
 |---|---|
@@ -88,36 +88,36 @@ kindで探すAPIはgrouping/filterとして複数idを返し、`BundleKind`か�
 
 beltのfitは単一transformで表せる円形柱近似に限定する。非円形断面や幅方向の変形が必要なら、このfit modeを拡大解釈せず別シナリオとして設計する。
 
-## model配置のownerと親参照
+## モデル配置のownerと親参照
 
-| owner | 配置するmodel |
+| owner | 配置するモデル |
 |---|---|
 | `Pole` | pole visual assembly(body、電線非関連装飾) |
 | `SavedBackboneRowKey` | `PlacementRule::at_row`のrow fixture assembly(crossarm、belt) |
 | `Port` | `PlacementRule::at_endpoint`のendpoint fixture assembly(insulator、clamp相当) |
-| Span anchor | `PlacementRule::interval`のspan上assembly(テスト用。既定templateでは未使用) |
+| Span anchor | `PlacementRule::interval`のspan上assembly(テスト用。既定テンプレートでは未使用) |
 | Entity-layer `Attachment` | span途中のinline model |
 | Core derived decoration | `Pole` / `SupportNode` / `Span`由来の局所detail modelと短い配線をCore visual outputへ派生 |
 
-Coreのモデル契約には用途名を持ち込まない。assemblyはpart、local transform、限定fit mode、名前付きsocketだけを持つ。socket無しassemblyは表示だけで、curve endpointを変更しない。
+Coreのモデル契約には用途名を持ち込まない。assemblyが持つのは、part、local transform、限定されたfit mode、名前付きsocketだけである。socketを持たないassemblyは表示だけに使い、curve endpointを変更しない。
 
 Core derived decorationはauthoritative entityではない。Bundle、lane、socket binding、生成済みモデルID、local cable ID、collision結果、equipment listは保存しない。ただしWireドメインの意味を使うため、viewer adapterではなくCore visual generationが、名前付きsocket、既存Bundle/Port/row/carrier情報、CableTemplate appearanceから`VisualModelInstance` / `VisualCurvePart`を再導出する。
 
 既存のentity-layer span Attachmentの保存形式と意味は変えない。
 
-モデルassemblyのworld materializationはCoreが所有し、初回生成とpost-editで同じ経路を使う。asset adapterはGLB/node/Empty由来のmodel/socketメタデータを渡すだけで、Wireの接続先、curve、materialは判断しない。
+model assemblyのworld materializationはCoreが所有し、初回生成とpost-editで同じ経路を使う。asset adapterはGLB/node/Empty由来のモデルとsocketのメタデータを渡すだけで、Wireの接続先、curve、materialは判断しない。
 
-GLBを読む責務はasset adapterに留める。adapterはモデルkey、local transform、名前付きsocketのメタデータを`ModelAssemblyTemplate` / `ModelAssemblyPart` / `ModelAssemblySocket`としてCoreへ渡すが、`connect_*`socketからcarrierを探したりlocal cable curveやmaterialを決めたりしない。
+GLBを読む責務はasset adapterに留める。adapterはモデルのkey、local transform、名前付きsocketのメタデータを`ModelAssemblyTemplate` / `ModelAssemblyPart` / `ModelAssemblySocket`としてCoreへ渡すが、`connect_*`socketからcarrierを探したりlocal cable curveやmaterialを決めたりしない。
 
-socket名のWire上の意味はCoreだけが解釈し、CoreはGLB parserを持たない。`VisualModelInstance`はderivedキャッシュであり、Pole、row、PortやSavedBackboneGraphへモデルinstance識別情報を追加しない。
+socket名のWire上の意味はCoreだけが解釈し、CoreはGLB parserを持たない。`VisualModelInstance`はderivedキャッシュであり、Pole、row、PortやSavedBackboneGraphへモデルinstanceの識別情報を追加しない。
 
-deformable cable patternもmesh asset自体のparse、catalog、authoring extent、局所deformationはadapter側に置く。Coreはsag済みcurveとWire semanticだけを返し、GLB asset識別情報を`VisualModelInstance`や保存スキーマへ追加しない。
+deformable cable patternもmesh asset自体のparse、catalog、authoring extent、局所deformationはadapter側に置く。Coreはsagを適用したcurveとWire semanticだけを返し、GLB asset識別情報を`VisualModelInstance`や保存スキーマへ追加しない。
 
 未完成のsupport detail catalogは、Coreの派生・保存契約を変えずviewerのpresentation availabilityとして非表示にしてよい。この境界で配置、接続先、curve、material意味論を再計算してはいけない。
 
 lowered endpointのsocket/endpoint契約は[`generation.md`](generation.md)のPlacementを正本とする。旧`support_world -> endpoint_world`の`SupportArm` placeholderは生成しない。
 
-row fixtureとPort fixtureはgenericモデルassemblyから派生し、旧い用途boolや高さscalarを決定者にしない。viewerが不足fixtureを推測して補ってはいけない。
+row fixtureとPort fixtureは汎用のmodel assemblyから派生し、用途を表す旧来のboolや高さのscalarを判断に使わない。viewerが不足したfixtureを推測して補ってはいけない。
 
 配置されるinstanceの親参照は次の3種だけに限定する。
 
@@ -166,7 +166,7 @@ adapter/viewer側でEuler順やlayout yaw合成を再解釈しない。
 
 `interval`は現時点では機構証明用で、既定テンプレートには載せない。姿勢は配置規則の種類ではなく`world_up` / `align_tangent`のorientation policyとして直交させる。
 
-v1のwire socketはcurve endpointの位置を決める。socketのdirectionはdescriptor/assemblyへ保持するが、現行のcurve tangent authorityにはしない。挿し込み型fixtureもadapterが測定長とwire socketを渡し、Coreは用途名やGLB軸を知らず同じMountRef/PlacementRule経路で配置する。
+v1のwire socketはcurve endpointの位置を決める。socketのdirectionはdescriptor/assemblyへ保持するが、現行のcurve tangent authorityにはしない。挿し込み型のfixtureもadapterが測定長とwire socketを渡し、Coreは部品の用途名やGLB軸を知らず同じMountRef/PlacementRule経路で配置する。
 
 方向をG1拘束へ使う場合は、continuity policyとnode patchの契約を含めて別シナリオとして設計する。
 
@@ -186,7 +186,7 @@ v1のwire socketはcurve endpointの位置を決める。socketのdirectionはde
 - `internal_path`が無い置換は合法。モデル本体が区間を埋める前提として、元curveの区間だけをhiddenにする。
 - 玉碍子: socket 2つ + 区間置換。線はsocket Aで終端し、碍子長ぶんhidden、socket Bから再開。
 - 端子函: in/out socketで幹線を函へ落として出す。引込線用socketを追加すれば降り線の接続点になる。
-- socket位置はモデルdescriptorのmarkerから供給する(上記3層構造と同一の経路)。
+- socket位置はmodel descriptorのmarkerから供給する(上記3層構造と同一の経路)。
 - descriptorから`AttachmentTemplate`へはpure functionで変換する。`line_in` / `line_out` markerを
   main line置換の必須socketとし、`drop` markerは補助socketとして保持する。欠けたmarkerは補完せずconflictにする。
 - 既存sceneへの反映は`UpdateAttachmentTemplate`を使う。モデル再読込専用の登録・更新経路は作らない。

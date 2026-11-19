@@ -128,7 +128,7 @@
 
 ## 監査結果
 
-直接control callsiteは次の130件を照合した。
+controlを直接呼ぶ箇所は、次の130件を照合した。
 
 | file | button | slider | 入力 | checkbox | combo | invisible button | 合計 |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -136,28 +136,28 @@
 | `viewer/src/draw_path.cpp` | 5 | 0 | 5 | 6 | 3 | 0 | 19 |
 | `viewer/src/render_overlay.cpp` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 
-`Selectable`はcomboの候補とoutlinerの反復項目なので、独立操作数には加算していない。`InputTextString`と動的labelのrelated link / object listは、それぞれ上表のテンプレートtext、related links、outlinerとして監査した。
+`Selectable`はcomboの候補とoutlinerの反復項目なので、独立した操作の数には加算していない。`InputTextString`と動的なラベルを使うrelated link / object listは、それぞれ上表のテンプレートのテキスト入力、related links、outlinerとして監査した。
 
 現在、次の問題を把握している。
 
 - `Apply Bundle Template`は成功後に`ApplyBundleRelatedPoleTypeToExistingPoles`を暗黙実行する。
 - `Apply Pole Template`も成功後に同APIを暗黙実行する。
 - 後段が失敗すると先行したテンプレート更新は既に成功しているのに、UIは一つのApplyが失敗したように見える。
-- web viewerではテンプレート更新とrelated pole適用を別action / buttonにし、各`EditResult.error`を表示する。
+- web viewerではテンプレート更新とrelated pole適用を別action / buttonにし、各操作の`EditResult.error`を表示する。
 - テンプレートの未対応decision/structure差分は [merge_readiness.md](../merge_readiness.md) の条件でunsupportedになり得る。
   `UpdateLayoutSettings`とspan overrideはbackbone spanでも統一regenerateで反映する。事前推測せずcoreのerrorを表示する。
 
 ## W4 実装結果
 
-P1の実装済みfamily。
+P1で実装済みの機能群は次の通り。
 
 - Draw Path: ground click、pole/bundle選択、count、interval、clicked-only、direction、preview、
   overlay、keep path、undo、clear、generation error。
 - camera/workspace: OrbitControls、FOV、panel表示、panel幅。
 - geometry/layout/visual: 更新クラスに従うpreview/commit、Esc cancel、error表示。
 - orientation: selected/all pole tilt、span reference length reset、selection filter。
-- Cable/Bundle/Poleテンプレート: current値の読込と明示update。Pole band/anchor slotを含む。
-- related pole type: 独立button。Bundle/Poleテンプレートupdateから暗黙呼出ししない。
+- Cable/Bundle/Poleテンプレート: 現在値の読込と明示的な更新。Pole band/anchor slotを含む。
+- related pole type: 独立したボタンとし、Bundle/Poleテンプレートの更新から暗黙に呼び出さない。
 - outliner/inspection: pole/port/span/midair一覧、主要値、選択解除。
 - override clear: pole orientation、span socket A/B、branch down。
 
@@ -169,13 +169,13 @@ P1だが意図的に除外した項目。
 
 ## Workspace persistence
 
-web viewerはバージョン付きworkspace documentをbrowser local storageへ自動保存する。documentはCoreのauthoritative save文字列と、編集中path・テンプレート選択・表示・panel配置等のWeb設定を同じ単位で保持し、次回起動時にCoreを先にloadしてからWeb設定とderived sceneを復元する。
+web viewerは、バージョン付きのworkspace文書をブラウザーのローカルストレージへ自動保存する。文書には、Coreの正本を保存した文字列と、編集中の経路・テンプレート選択・表示・panel配置等のWeb設定をまとめて保持する。次回起動時には、Coreを先にloadしてからWeb設定と派生したsceneを復元する。
 
 parts、catalog、timing、log等の再取得可能な値は保存しない。
 
-Store変更は250ms debounceで保存し、page unloadでは同期flushする。`Reset`は起動時のfactory CoreStateと既定Web設定へ戻し、その状態でキャッシュを置換する。手動Save/LoadはCore archiveの入出力として残し、Load後の状態は次のキャッシュflushに含める。
+storeの変更は250msのdebounceをかけて保存し、ページを閉じる際は同期的にflushする。`Reset`は起動時のfactory CoreStateと既定Web設定へ戻し、その状態でキャッシュを置換する。手動Save/LoadはCore archiveの入出力として残し、Load後の状態は次のキャッシュflushに含める。
 
 ### Smoke確認
 
-- Saveで状態textを保存し、別操作後にLoadすると保存時のpole / span / curve表示へ戻る。
-- バージョン不一致またはtruncatedな状態textをLoadするとerrorが表示され、現在の表示と状態は変わらない。
+- Saveで状態を表すテキストを保存し、別操作後にLoadすると保存時のpole / span / curve表示へ戻る。
+- バージョン不一致または途中で切れた状態テキストをLoadするとerrorが表示され、現在の表示と状態は変わらない。

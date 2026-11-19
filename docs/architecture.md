@@ -4,9 +4,9 @@
 
 ドメイン文書は固有語彙を追加できるが、この文書が定める正本の境界、依存方向、トランザクション規則を弱めてはならない。
 
-## Domain着手条件
+## ドメインの実装に着手する条件
 
-新しいドメイン、subsystem、pipelineを実装する前に、同じリポジトリの既存実装を調査する。製品コードの実装より先に、ドメイン文書へ次の対応表を作る。
+新しいドメイン、サブシステム、パイプラインを実装する前に、同じリポジトリの既存実装を調査する。製品コードの実装より先に、ドメイン文書へ次の対応表を作る。
 
 | 項目 | 記載内容 |
 |---|---|
@@ -17,13 +17,13 @@
 | 正本 | 保存する識別情報とユーザー決定値 |
 | 派生 | 正本から再構築できる値とキャッシュ |
 | 操作担当箇所 | 正本を変更できるAPIと原子性 |
-| Decision ownership | Decision、Owner、Inputs、Authoritative出力、downstream consumers |
+| Decision ownership | Decision、Owner、Inputs、正本となる出力、その出力を使う下流の処理 |
 
 対応が未決定の項目を現在の実装、テスト、UIから推測して埋めない。類似実装を再利用しない場合は、意味と責務がどう異なるかを記録する。名前の違いだけを理由にしない。
 
 ## State layers
 
-状態は次のlayerに分ける。
+状態は次の層に分ける。
 
 | layer | 内容 | 保存 |
 |---|---|---|
@@ -31,7 +31,7 @@
 | Session draft | 未確定pick、preview、操作途中のhandle | 保存しない |
 | Authoritative | 識別情報、topology、ユーザーが確定した意味入力 | 保存する |
 | Derived | connectivity評価、layout、curve、mesh、marking、bounds | 保存しない |
-| Runtimeキャッシュ | index、lookup、renderキャッシュ、計測値 | 保存しない |
+| 実行時キャッシュ | index、lookup、描画用キャッシュ、計測値 | 保存しない |
 
 正本の変更は、その状態を管理する操作APIだけが行う。派生、viewer、adapter、テストから正本へ書き戻さない。loadは正本を復元した後、通常のbuild経路で派生と実行時キャッシュを再構築する。
 
@@ -59,7 +59,7 @@ Decision -> Owner -> Inputs -> Authoritative output -> downstream consumers
 
 正本変更は試行用の状態へ適用し、統一build入口で派生とindexを再構築し、全段階の検証が成功した後にだけ本状態へ反映する。失敗時は正本、派生、セッションの一時データの消費状態を変更前と一致させる。
 
-pipeline段階は責務で分ける。操作固有分岐をmaterializationやviewerへ持ち込まない。下流で不足が判明した場合、上流正本を補正せず、担当箇所へ戻すかunsupportedにする。
+パイプラインの段階は責務で分ける。操作固有の分岐をmaterializationやviewerへ持ち込まない。下流で情報不足が判明した場合は上流の正本を補正せず、その情報を決める処理へ戻すか、未対応の操作として拒否する。
 
 ## Persistence
 
@@ -73,11 +73,11 @@ pipeline段階は責務で分ける。操作固有分岐をmaterializationやvie
 
 編集入力とcanonical幾何を分ける。UIのtool modeやpreview表現を、そのまま正本のkindへしない。curve、frame、station、surface、meshは各ドメインのcanonical authorityから一方向に導出する。
 
-materializationはcoreが決定したworld-space幾何とmaterial意味論を消費する。viewer側で高さ、接続、material、可視性の意味を再判定しない。
+materializationでは、Coreが決定したワールド座標の幾何とマテリアルの意味を使う。viewer側で高さ、接続、マテリアル、可視性の意味を再判定しない。
 
 ## Shared code
 
-共有実装は、2つ以上の実消費者があり、意味と失敗契約が一致した後に`foundation`へ移す。将来共有できそうという理由だけで抽象化しない。一方、既存の共有実装を検索せずにドメイン内へ重複実装を作らない。
+共有実装は、実際に使う箇所が2つ以上あり、意味と失敗時の契約が一致した後に`foundation`へ移す。将来共有できそうという理由だけで抽象化しない。一方、既存の共有実装を検索せずにドメイン内へ重複実装を作らない。
 
 共有候補をドメイン内へ一時配置する場合は、担当箇所、抽出条件、非対象をドメインarchitectureへ記載する。
 

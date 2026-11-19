@@ -1,34 +1,34 @@
 # Roadの対応範囲
 
-この文書は、Roadの明示的なcommit試行について対応範囲を定める。pointer移動は軽量guideだけを更新し、commitとして分類しない。
+この文書は、Roadで明示的に確定操作を試みる場合の対応範囲を定める。ポインターの移動では軽量ガイドだけを更新し、確定操作として分類しない。
 
 ## 通常描画で対応する構成
 
-道路は登録済みの断面を使って描画する。Coreは断面catalogueを内蔵しない。利用者が選択できる断面一覧は`web/src/road_templates.ts`が所有し、新規workspaceは`AddRoadLayoutTemplate`で登録して、Coreが返したIDを保持する。
+道路は登録済みの断面を使って描画する。Coreは断面のcatalogを内蔵しない。利用者が選択できる断面一覧は`web/src/road_templates.ts`が所有し、新規workspaceは`AddRoadLayoutTemplate`で登録して、Coreが返したIDを保持する。
 
-保存済みworkspaceを開き直す場合はarchive内の断面を使い、catalogueを再登録しない。
+保存済みworkspaceを開き直す場合はarchive内の断面を使い、catalogを再登録しない。
 
 次は通常対応する構成であり、製品要件を理由に拒否してはならない。単独の直線道路またはBezier道路、独立した道路の反復作成、degree 2のpass-throughまたはcorner、T字・十字を含む対応済みdegree 3/4 junction。endpoint延長は明示されたendpoint IDを使い、segmentへの分岐は明示されたsegment IDとsegment内距離を使う。
 
-回帰テストは、直線・Bezierの反復session、Enter、Escape、tool切替、commit拒否後の再試行、endpoint延長、T字・十字生成、斜めjunction、実際のWASM scene更新を対象とする。
+回帰テストは、直線・Bezier道路を繰り返し描くsession、Enter、Escape、toolの切り替え、確定拒否後の再試行、endpoint延長、T字・十字生成、斜めjunction、実際のWASMによるsceneの更新を対象とする。
 
 ## 製品要件による制約
 
 `RequirementConstraint`は文書化された製品規則だけに使う。現在Roadにある規則は、新しく送られたPathが自己交差してはならないことだけである(`road_path_self_intersection`)。固定角度範囲、resolverの対応不足、幾何実装上の制限は製品要件による制約ではない。
 
-## failureのowner
+## 失敗時の責務
 
 | 担当箇所 | 入力条件 | category | 通常描画への影響 |
 |---|---|---|---|
 | 操作preflight (`operations/`) | ID欠落、非有限入力、長さ0のspan、不正なrequest | `InvalidInput` | ClickまたはEnterの後だけ表示する |
 | 操作preflight (`operations/`) | 文書化されたPath自己交差 | `RequirementConstraint` | 利用者が入力Pathを変更する必要がある |
-| connection解決 (`generation/connections.cpp`) | 正しいtopologyだが現在のresolver対応外、対応可能なsetback不足、未対応の断面組合せ | `NotImplemented` | 利用者の入力エラーではなく、bugまたは対応範囲backlog |
-| segment・section・marking解決 | 正しい操作だがtransitionまたはmarkingのmerge/splitが未実装 | `NotImplemented` | 操作はatomicかつ再試行可能なまま |
+| connection解決 (`generation/connections.cpp`) | 正しいtopologyだが現在のresolver対応外、対応可能なsetback不足、未対応の断面組合せ | `NotImplemented` | 利用者の入力エラーではなく、不具合または対応範囲の保留事項 |
+| segment・section・marking解決 | 正しい操作だがtransitionまたはmarkingのmerge/splitが未実装 | `NotImplemented` | 操作の原子性と再試行可能な状態を維持する |
 | generationと幾何 | 正しいauthoritative参照または必須のderived値が欠落 | `InternalError` | 対応済み経路の不具合 |
 | persistence | フィールドの重複・欠落・不明、無効なID、非有限値 | `InvalidInput` | 状態を置換する前にloadを拒否する |
-| draw session | 明示requestがanchor確定後に変更された状態を参照 | `StateConflict` | anchorを更新して再試行する。現在の同期Road経路はこのcategoryを返さない |
+| draw session | 明示requestがanchor確定後に変更された状態を参照 | `StateConflict` | anchorを更新して再試行する。現在の同期的なRoadの処理経路はこの分類を返さない |
 
-commit失敗は必ず空でないreason codeを持つ。UIは`NotImplemented`を未実装として表示し、不正入力として扱わない。内部不変条件違反を`RequirementConstraint`へ変換してはならない。
+確定操作の失敗には、必ず空でない理由コードを付ける。UIは`NotImplemented`を未実装として表示し、不正入力として扱わない。内部不変条件違反を`RequirementConstraint`へ変換してはならない。
 
 ## 未対応のfamily
 
@@ -52,4 +52,4 @@ Lane BranchとMergeは利用できない。旧editorはraw境界IDを利用者�
 
 ## sessionの動作
 
-ClickとEnterは明示的なdraw action結果を返す。commitが拒否されてもanchorとguideを維持する。pointer移動で直前のcommit失敗を上書きしない。anchorはあるがguideがない状態のEnterはtransient sessionを明示的に終了し、active sessionがない状態のEnterは`ignored/session-inactive`を返す。
+ClickとEnterは、描画操作の結果を明示して返す。確定を拒否した場合もanchorとガイドを維持する。ポインター移動で直前の確定失敗を上書きしない。anchorはあるがガイドがない状態でEnterを押すと、一時的な描画sessionを明示的に終了する。有効なsessionがない状態でEnterを押すと、`ignored/session-inactive`を返す。

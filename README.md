@@ -4,10 +4,10 @@
 
 ## 現在の構成
 
-- `core`: dataモデル、backbone generation、post-edit derive、検証
-- `viewer`: core出力を表示・操作する開発用利用側
-- `tools`: architecture/test family lint
-- `docs`: 現行設計、残存legacy、merge条件、テスト、実行手順
+- `core`: データモデル、backbone generation、post-edit derive、検証
+- `viewer`: Coreの出力を表示・操作する開発用のアプリケーション
+- `tools`: arch lintとtest-family lint
+- `docs`: 現行設計、残っている旧実装、merge条件、テスト、実行手順
 
 `SavedBackboneGraph`をtopology authorityとし、rules、layout、geom、drawを一方向に派生する。viewerは不足したtopologyやplacementを推測しない。
 
@@ -30,4 +30,4 @@ python tools\test_family_lint.py
 & .\build-vs18-coretests\domains\wire\Debug\wire_core_tests.exe backbone
 ```
 
-詳細なbuild/viewerコマンドは[command_cheatsheet.md](docs/command_cheatsheet.md)を参照する。
+buildとviewerに関する詳しいcommandは[command_cheatsheet.md](docs/command_cheatsheet.md)を参照する。

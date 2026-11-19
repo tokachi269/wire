@@ -27,7 +27,7 @@ class RepositoryArchitectureChecksTest(unittest.TestCase):
                 "\n".join(
                     (
                         "# Repository architecture",
-                        "## Domain着手条件",
+                        "## ドメインの実装に着手する条件",
                         "## State layers",
                         "## Operations and build",
                     )

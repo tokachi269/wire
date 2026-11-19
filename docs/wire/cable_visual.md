@@ -1,24 +1,24 @@
 # Wire cable visual
 
-この文書ではcable centerline、visual curve part、CableSection、span visual assembly、deformable cable asset materializationを定義する。topology/placementは[`state_and_persistence.md`](state_and_persistence.md)と[`generation.md`](generation.md)の決定済み出力を消費し、再判断しない。
+この文書ではcable centerline、visual curve part、CableSection、span visual assembly、deformable cable asset materializationを定義する。topologyとplacementについては、[`state_and_persistence.md`](state_and_persistence.md)と[`generation.md`](generation.md)で定義した決定済み出力を使い、再判断しない。
 
 ## Cable curve
 
 cable centerlineの正本入力は、attachment endpoint、gravity、sag、tangent policy、canonical direction、curve familyである。Bezier制御点を正本にはしない。`domains/wire/src/geometry/curve`がこの意味入力からsample、arc length、frame、boundsを生成し、具体的な計算方式は`CurveMethod`で差し替える。
 
-main spanの既定方式はparabolic sagとし、支持点でsag勾配を持つ実接線を維持する。端点微分が0になるdecorative offsetをmain cable centerlineへ使わない。中心線へ横揺れnoiseを入れない。continuity policyは端点接線とhandleを決めるが、main spanのsag profileを別方式へ切り替えない。
+main spanの既定方式はparabolic sagとし、支持点でsag勾配を持つ実接線を維持する。端点微分が0になるdecorative offsetをmain cable centerlineへ使わない。中心線へ横揺れのノイズを加えない。continuity policyは端点接線とhandleを決めるが、main spanのsag profileを別方式へ切り替えない。
 
 `CableTemplate.sag_factor`はspan全体に1回適用する単一のratioであり、start/endごとの加算値ではない。Endpoint constraintを経由するcurve方式でも、両端へ同じratioを重複適用してはならない。このratioが指定する物理sag量は`endpoint chord length * ratio`であり、span長、pass種別、continuity、曲げ剛性を理由に別倍率で再解釈しない。
 
-これらは端点接線やhandleを決めてもsag量を変更しない。
+端点接線やハンドルの決定によって、sagの量を変更してはならない。
 
-bundle lane、band、helix、noiseは安定したcenterlineとcanonical direction基準frameからvisual layerで展開する。G2接続は現時点の必須条件ではない。support/insulator leadとjumperはmain spanとは別のcurve familyとして扱い、未対応familyは別方式へsilent fallbackせず明示的に拒否する。
+bundle lane、band、helix、noiseは安定したcenterlineとcanonical direction基準frameからvisual layerで展開する。G2接続は現時点の必須条件ではない。support/insulator leadとjumperはmain spanとは別のcurve familyとして扱い、未対応のcurve familyは、別方式へsilent fallbackせず明示的に拒否する。
 
 span-local attachment blend方式は採用しない。continuousな本線接続部を各span端に個別に押し込むとsample polyline上でG1が崩れやすく、main spanから接続部へ不自然に切り替わる。
 
 ## Visual curve parts
 
-現在は派生debug/cacheとして`VisualCurvePart`を持ち、最小単位を`NodePatchCurve`と`EdgeBodyCurve`へ分ける。未接続のterminal endpointには`NodePatchCurve`を作らない。末端へ新しいedgeを延長した場合は、一意な未接続endpointが2つ揃った操作でcontinuityを記録し、通常角ならそのpairをpatchが消費する。
+現在は派生したデバッグ情報とキャッシュとして`VisualCurvePart`を持ち、最小単位を`NodePatchCurve`と`EdgeBodyCurve`へ分ける。未接続のterminal endpointには`NodePatchCurve`を作らない。末端へ新しいedgeを延長した場合は、一意な未接続endpointが2つ揃った操作でcontinuityを記録し、通常角ならそのpairをpatchが消費する。
 
 branch追加後もmulti-incident全体を丸めず、continuityが明示するthrough 2-edgeだけを維持する。
 
@@ -36,7 +36,7 @@ branch自体やfixture境界は、明示的なfixture/lead/jumper仕様が入る
 
 scoped visual rebuildでは、`changed spans`、その端点でconnection visualを書き換える`affected nodes`、materializationのため読むだけの`context spans`を分ける。EdgeBody等のspan-owned partはchanged spanだけ、NodePatch/Jumper等のnode-owned partはaffected nodeだけを削除・置換する。
 
-context spanの反対側nodeは削除対象へ昇格させない。context不足時に既存connectionを削除してsilent skipすることは禁止する。
+context spanの反対側nodeは削除対象へ昇格させない。contextが不足している場合に、既存connectionを削除したうえで通知せず処理を省くことは禁止する。
 
 ## CableInstance and CableSection
 
@@ -44,7 +44,7 @@ context spanの反対側nodeは削除対象へ昇格させない。context不足
 
 population sectionは同じ`logical_span_id`に属するspan visual assembly memberである。base sectionとpopulation sectionsはそれぞれ既存のendpoint、sag、curve policyから通常のbody curveを作る。
 
-populationは`SavedBackboneGraph`、Span、Portを増やさず、配置不能時はomit diagnosticを残す。
+populationは`SavedBackboneGraph`、Span、Portを増やさず、配置できなかった場合は、省略したことを示す診断情報を残す。
 
 旧cable populationのvisual-only duplicationをBundle本数のvariationとして使う経路は退役する。Bundle本数を`CableSectionLayout`の追加描画として生成せず、authoritative topologyが必要なBundleは通常のBundle / Port / Spanとして生成する。
 
@@ -52,11 +52,11 @@ populationは`SavedBackboneGraph`、Span、Portを増やさず、配置不能時
 
 ## Span visual assembly
 
-span visual assemblyはderived visual出力であり、authoritative topologyではない。assemblyの単位と識別情報の所有元はsource logical span / Bundleであり、Bundleの全topology laneを物理的に束ねるものではない。
+span visual assemblyは表示用の派生出力であり、authoritative topologyではない。assemblyの単位と識別情報の所有元はsource logical span / Bundleであり、Bundleの全topology laneを物理的に束ねるものではない。
 
 1 logical spanは設定により1本または複数の近接visual memberとして描画できるが、Span、Port、Bundle、attachment、CableRun識別情報は増やさない。
 
-membersはbase sectionと、そのlogical cableをつなぐNodePatch / Lead / Jumperから派生するvisual構成要素である。線種ごとの`SpanVisualAssemblyTemplate`が固定member数と基準間隔を所有する。
+membersはbase sectionと、そのlogical cableをつなぐNodePatch / Lead / Jumperから派生する表示用の構成要素である。線種ごとの`SpanVisualAssemblyTemplate`が固定member数と基準間隔を所有する。
 
 logical cable centerlineは通常のsag curveを維持し、束全体または個別memberへ見た目だけのrandom wander、phase、twistを加えない。
 
@@ -64,11 +64,11 @@ main spanのsupport pathとmembersはhelixの内側に置き、support pathは�
 
 visual memberの断面はcenter curveに直交するlateral/up 2次元平面へcompactに配置する。1本はcenter、2本は対向、3本は三角形、4本は正方形相当、5本以上は小さな決定的円形配置とし、packing solverは持たない。`visual_member_spacing_m`はmember中心間隔であり、実際の間隔はCableTemplateの外径以上にclampする。
 
-初期テンプレートでは線径に小clearanceを加えたcompact配置とする。
+初期テンプレートでは線径に小さなclearanceを加えた密な配置とする。
 
 基準断面offsetはendpointでも維持し、全memberをlogical endpointの1点へ収束させない。authoritative Port / logical endpointはvisual member endpoint群の重心であり、member数に応じてPort、Span、Bundle、attachment、fixtureを増やさない。
 
-Communication、Optical、support path、helixは同じlogical-span assembly pipelineの設定差で表現する。別のedge-bundle groupingやcategory専用幾何担当箇所を持たず、幾何近傍からmemberを探索しない。
+Communication、Optical、support path、helixは同じlogical-span assembly pipelineの設定差で表現する。別のedge-bundle groupingやcategory専用の幾何生成処理を持たず、幾何的な近さからmemberを探索しない。
 
 main spanのsagは`ResolvedSpanCurveInputs.effective_sag_ratio`を最終curveまで一貫して使う。非HVは既存のhierarchical variationから小さな差を導出し、HVはvariation multiplierを適用せず従来値を維持する。
 
@@ -96,7 +96,7 @@ assemblyはbase section、同じlogical spanのpopulation sections、support pat
 
 ## Render materialization boundary
 
-Core visual generationはWire curve意味論を所有する。sag済み`VisualCurvePart.samples`、part kind / supplemental kind、boundary/tangent、wire radius、material/color、helixのresolved axis/radiusを派生出力とする。
+Core visual generationはWire curve意味論を所有する。sagを適用した`VisualCurvePart.samples`、part kind / supplemental kind、boundary/tangent、wire radius、material/color、helixのresolved axis/radiusを派生出力とする。
 
 Coreは具体GLB、asset family、authoring length、piece、variant、visual flipを知らない。
 

@@ -32,17 +32,17 @@
 - global cable population config / enable flag / seed
 - `AddConnectionByPole`、`AddDropFromPole`、`AddDropFromSpan`、`SplitSpan`の公開API、実装、専用型
 - domains/road/building固有のcore識別情報型
-- `SegmentLaneAssignment`、`last_generation_lane_assignments`、旧generationテストsuite
+- `SegmentLaneAssignment`、`last_generation_lane_assignments`、旧生成処理のテスト群
 
 ## viewer/debug境界
 
-通常viewerとcaptureは、neutral layout / geom / draw / `SavedBackboneGraph`を読む。support-layout authority、seed、projectionを読む表示は、退役済みのdebug処理群として扱う。通常の処理経路には含めない。
+通常viewerとcaptureは、neutral layout / geom / draw / `SavedBackboneGraph`を読む。support-layout authority、seed、projectionを読む表示は、廃止済みのデバッグ処理群として扱う。通常の処理経路には含めない。
 
 ## 旧テストの扱い
 
 旧テストは一律に捨てない。
 
-- 現在も有効な検証、状態unchanged、識別情報、determinismは維持する。
-- v1内部構造に依存するassertはbackboneの正本・派生境界へ置き換える。
+- 現在も有効な検証、状態が変わらないこと、識別情報、決定性の検証は維持する。
+- v1の内部構造に依存するassertionはbackboneの正本・派生境界へ置き換える。
 - recalc順序、authority object、projection object自体を要求するテストは退役する。
 - 1件ずつ延命せず、family単位で移植または削除する。

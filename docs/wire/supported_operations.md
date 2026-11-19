@@ -1,20 +1,20 @@
 # Wireの対応操作
 
-この文書は、明示的なWire確定操作の対応範囲を定める。ポインターのガイドでは、backbone生成、モデルassembly、scene出力を実行しない。
+この文書は、明示的なWire確定操作の対応範囲を定める。ポインターのガイドでは、backboneの生成、model assemblyの生成、sceneへの出力を実行しない。
 
 ## 通常描画で対応する構成
 
-通常の操作では、新しい独立route、最後に生成した終点からの延長、session終了後の新しい独立route、明示的なPole終点の再利用、対応済みmidair branch pick、T字・cross生成、モデルを含む複数Bundle生成に対応する。routeの完了後は、一時anchor、preview、pending support状態を残さない。
+通常の操作では、新しい独立route、最後に生成した終点からの延長、session終了後の新しい独立route、明示的なPole終点の再利用、対応済みmidair branch pick、T字・十字の生成、モデルを含む複数のBundleの生成に対応する。routeの完了後は、一時的なanchor、プレビュー、保留中の支持物の状態を残さない。
 
-実WASMの回帰fixtureは、モデルを含む独立した12本のrouteを作り、それぞれ2区間を確定する。previewの原子性と最終scene出力を検証する。ViewerActionsでは別途、Click、Enter、Escapeの繰り返しと、toolを切り替えるsessionを検証する。
+実WASMの回帰fixtureは、モデルを含む独立した12本のrouteを作り、それぞれ2区間を確定する。プレビューの原子性と最終的なsceneの出力を検証する。ViewerActionsでは別途、Click、Enter、Escapeの繰り返しと、toolを切り替えるsessionを検証する。
 
 ## 製品要件による制約
 
-`RequirementConstraint`に分類するのは、要求されたmidair branchをBundleテンプレートが禁止する場合など、明示的なテンプレート方針またはtopology方針に限る。古いrow、モデルfixtureの欠落、解決できない保存binding、session状態の不一致は、製品要件による制約ではない。
+`RequirementConstraint`に分類するのは、要求されたmidair branchをBundleテンプレートが禁止する場合など、明示的なテンプレート方針またはtopology方針に限る。古いrow、モデルのfixtureの欠落、解決できない保存binding、session状態の不一致は、製品要件による制約ではない。
 
 ## 失敗時の責務
 
-分類とreason codeの意味は[確定操作の失敗分類](../editor/commit_failure_categories.md)を正本とする。Coreは`core_edit_types.hpp`の`ClassifyCommitFailure`で分類し、未知のerrorは`InternalError`とする。下表は描画操作の境界でWireのどこが失敗を担当するかを示す。
+分類と理由コードの意味は[確定操作の失敗分類](../editor/commit_failure_categories.md)を正本とする。Coreは`core_edit_types.hpp`の`ClassifyCommitFailure`で分類し、未知のerrorは`InternalError`とする。下表では、描画操作の境界ごとに、失敗の判定を担う処理を示す。
 
 | 担当 | 入力条件 | 分類 | 通常描画への影響 |
 |---|---|---|---|
@@ -26,4 +26,4 @@
 
 ## 描画sessionの動作
 
-最初のClickでanchorを受理する。次のClickで1区間を確定し、解決済みの終点を継続anchorとして保持する。Enterは表示中のガイドを確定してsessionを終了する。Escapeは一時状態だけを破棄する。toolの切り替えでは、それまでの一時sessionを終了する。全ての主操作は明示的な結果を返し、描画可能なクリックを無視せず明示的に結果を返す。
+最初のClickでanchorを受理する。次のClickで1区間を確定し、解決済みの終点を継続anchorとして保持する。Enterは表示中のガイドを確定してsessionを終了する。Escapeは一時状態だけを破棄する。toolを切り替えると、その時点の一時的なsessionを終了する。描画可能なClickを無視せず、全ての主操作で結果を明示して返す。

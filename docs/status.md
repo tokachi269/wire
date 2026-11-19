@@ -6,16 +6,16 @@ merge前のゲートは[merge_readiness.md](merge_readiness.md)にある。こ�
 
 | ID | 操作 | 現状 | 解除条件 |
 |---|---|---|---|
-| R2 | `ResolveBranchPick`のpure化 | `ResolveBranchPick`は現在、viewerのdraw bridgeが次のgenerationに渡すpending support nodeを作る操作でもある。照会APIとしてpureに分離するにはbridge協定変更が必要 | `ResolveBranchPick`は副作用なしの解決だけを返し、pending support nodeの作成/消費は別の確定操作へ移す。web bridgeとclear/cancel lifecycleを同時に更新し、既存pending lifecycleテストを通す |
-| R3 | road authored profile / reference mesh UV sourceがない | `Mesh`はnormal、uv0、material groupを持つが、現行UVはprocedural defaultである。Blender等で制作したgutter/highway reference meshからcross section、V、material groupを取り込む経路はまだない | reference mesh/profile asset importerを追加し、procedural default UVをauthoredメタデータへ置換できることを実メッシュで確認する |
+| R2 | `ResolveBranchPick`のpure化 | `ResolveBranchPick`は現在、viewerのdraw bridgeから次の生成処理へ渡すpending support nodeも作成する。副作用のない照会APIへ分離するには、bridgeの受け渡し契約を変更する必要がある | `ResolveBranchPick`は解決結果だけを返し、pending support nodeの作成・消費は別の確定操作へ移す。web bridgeとclear/cancel lifecycleを同時に更新し、既存のpending lifecycleテストを通す |
+| R3 | road authored profile / reference mesh UV sourceがない | `Mesh`はnormal、uv0、material groupを持つが、現在のUVにはprocedural defaultを使っている。Blender等で制作したgutter/highway reference meshからcross section、V、material groupを取り込む経路はまだない | reference mesh/profile asset importerを追加し、procedural default UVを制作データ由来のメタデータへ置き換えられることを実メッシュで確認する |
 
 ## unsupported保留の一覧
 
-pipelineの入力検証系`unsupported`(不正入力の恒久拒否)はこの表の対象外。ここに載るのは「実装が無いため止めている」操作だけである。viewerはこれらを事前に判別せず、Apply後のerror logで初めてunsupportedが見える。
+不正入力を恒久的に拒否するpipelineの`unsupported`は、この表に含めない。ここでは、未実装のため保留している操作だけを扱う。viewerでは事前に判別せず、Apply後のerror logでunsupportedを確認する。
 
 | 分類 | 操作 | viewer到達 | 残る条件 | 解除条件 |
 |---|---|---|---|---|
-| D3. Generator入力not consumed | `UpdateContextProfile` | viewer未接続 | backbone spanあり | regenerateではない。生成側が`ResolveStyleContext`を実際の出力生成で消費した時点で解除する。現在の拒否はstale success防止 |
+| D3. 生成処理が入力を未使用 | `UpdateContextProfile` | viewer未接続 | backbone spanあり | regenerateへの対応ではない。生成処理が`ResolveStyleContext`を実際の出力生成で使うようになった時点で解除する。現在の拒否は、変更が出力へ反映されないまま成功することを防ぐためである |
 | R1. Road section not expressible | 断面外端の`BoundaryProfile` | viewer到達可(preset作成時) | `boundaries.size() + 1 == strips.size()` | 境界をgapごと(`strips.size() + 1`個)へ変え、外端も実境界にする。合成ID 1 / 999が消え、`merge_boundary_policies`のindexとjunctionの外端判定が連動する。歩道のない側のL字溝と、`road/architecture.md`の「歩道がない場合」の張り出しがこれで解ける |
 | R2. Road connection mapping | 断面styleが異なる道路同士の接続 | viewer到達可 | `AddSegmentConnectedTo`等 | `connection_geometry_from_gates`が`surface_styles`完全一致を要求している。片側だけ溝がある、左右で溝が違う、溝つきと縁石をつなぐ、が通らない。gate間のsurface対応をID/roleで解決してから解除する |
 
@@ -42,7 +42,7 @@ E. Docs stale only: `docs/viewer/operations.md`に残っていたbackbone span /
 
 | ID | 対象 | 観測した不足 | 次に確認すること |
 |---|---|---|---|
-| V1・対応済み | Wireの元の状態から初回loadへの派生等価性 | 旧C751は再loadの比較だけで、Span 54の`layout.end.endpoint_node_id`が0から55へ変わる差を見逃していた | 保存担当箇所が採番済みnode IDを一時graphへ反映するよう修正した。C751は元の状態→初回loadの意味値も比較する。モデルinstanceキャッシュ全体は対象外。根拠は[2026-11監査記録](../domains/wire/tests/audits/2026-11.md)を参照 |
+| V1・対応済み | Wireの元の状態から初回loadへの派生等価性 | 旧C751は再loadの比較だけで、Span 54の`layout.end.endpoint_node_id`が0から55へ変わる差を見逃していた | 保存処理が採番済みnode IDを一時graphへ反映するよう修正した。C751は元の状態→初回loadの意味値も比較する。モデルのinstance cache全体は比較対象外。根拠は[2026-11監査記録](../domains/wire/tests/audits/2026-11.md)を参照 |
 | V2・未対応 | `MovePole`の失敗時の状態不変 | 端の電柱を隣の電柱の位置へ移すとゼロ長として拒否するが、保存状態は変更される。マトリクスの成功経路とC813では検出できない | 失敗前後の正本・派生出力を既存の移動契約で直接比較し、更新全体の原子性を修正する |
 | V3・未対応 | ワークスペース読込全体の原子性 | 正常なWireと不正なRoadを含む文書は読込失敗になるが、Wireだけが置き換わり、表示用ストアは旧状態に残る | Core単体の読込契約と区別し、複数ドメインをまたぐ入口全体で失敗時の状態不変を保証する |
 | V4・未対応 | 連続生成後の保存・再導出の等価性 | 実WASMのクリック経路で3区間を連続生成すると、保存・再読込で一部のCableRun IDが変わる。座標とモデル配置の差は観測していない | 一括生成に限らず連続操作後の派生値を比較し、run IDを変える再導出範囲と原因を調べる |

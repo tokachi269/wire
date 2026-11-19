@@ -1,6 +1,6 @@
 # Wire generation
 
-この文書では、Wire backbone生成の処理段階、配置、識別情報の対応、生成・再構築、検証境界を定義する。操作×状態と操作固有lifecycleは[`backbone_operation_semantics.md`](backbone_operation_semantics.md)、authoritative/persisted状態は[`state_and_persistence.md`](state_and_persistence.md)を正本とする。
+この文書では、Wire backbone生成の処理段階、配置、識別情報の対応、生成・再構築、検証境界を定義する。操作×状態と操作ごとのライフサイクルは[`backbone_operation_semantics.md`](backbone_operation_semantics.md)、正本と保存状態は[`state_and_persistence.md`](state_and_persistence.md)を正本とする。
 
 ## Pipeline
 
@@ -20,9 +20,9 @@ context linkは判断入力であり、生成・保存対象ではない。T/cro
 
 backbone pipelineの実行入口は`build(build_input)`だけである。通常生成と保存範囲の再生成は、同じpipelineへ異なる`build_input`を渡す。regenerateは`CoreState`の編集後操作として扱い、pipelineの処理段階にはしない。
 
-`build_input`はgraph、active bundle scope、local path mappingを運ぶ。通常生成は`prepare`済みgraphから`build_input_from_spec`で入力を作り、saved-scope再生成は保存済みbackbone識別情報から復元したgraphを`build_input_from_saved_scope`で入力にする。
+`build_input`はgraph、処理対象のbundle scope、local path mappingを保持する。通常生成は`prepare`済みgraphから`build_input_from_spec`で入力を作り、saved-scope再生成は保存済みbackbone識別情報から復元したgraphを`build_input_from_saved_scope`で入力にする。
 
-bundleテンプレートやpole typeの差分はpipeline入力にoverrideとして持たせず、trial/proposal側の状態に反映してから同じ`build`を通す。
+Bundleテンプレートやpole typeの変更差分は、pipelineの入力にoverrideとして持たせない。trial/proposal側の状態へ反映してから、同じ`build`を通す。
 
 `prepare()`はまだpipeline memberにgraphを構築する既存構造を残している。次段階で必要なら`prepare()`自体を`build_input`生成器へ寄せる。`build`はpairs -> intent -> groups -> topo/emit -> save_graph -> rules -> layout -> geom -> drawの共通段階列を通す。
 
@@ -32,9 +32,9 @@ adapterはpair / emit / rules / layout / geom / drawの判断を持たない。�
 
 pole local frameの配置原点はpoleのtiltを含む中心軸とする。mesh表面やmesh下端を原点にしない。`PortPlacementBand.lateral_center_m`は中心軸から測ったbandの既定位置であり、`BackboneSpec.constraints.lateral_offset_m = 0`は選択されたband位置から追加移動しないことを意味する。
 
-`BackboneSpec::bundles`の各要素は1つのBundle placementである。同じ`BundleTemplateId`を複数要素から参照してよく、各要素は独立した`Bundle`識別情報を生成する。placementのexplicit height/lateralはpole local中心軸を原点とする絶対位置であり、spreadは`Bundle.phase_spacing_m`としてBundleが所有する。
+`BackboneSpec::bundles`の各要素は1つのBundle placementである。同じ`BundleTemplateId`を複数要素から参照してよく、各要素から、独立したIDを持つ`Bundle`を生成する。明示指定したplacementのheight/lateralは、pole local frameの中心軸を原点とする絶対位置である。spreadは`Bundle.phase_spacing_m`としてBundleに保持する。
 
-Pole band、category、個別Spanをplacement識別情報として代用しない。主線、endpoint fixture、support path、helixは同じBundle placementから解決されたPortを読む。
+Pole band、category、個別Spanを、placementの識別情報の代わりに使わない。主線、endpoint fixture、support path、helixは同じBundle placementから解決されたPortを読む。
 
 explicit placementでもpole band識別情報はfixture・roleの解決に使うが、そのheight/lateral centerを配置値へ加算しない。legacy/API入力でexplicit指定がない場合だけband既定位置を使用する。
 
@@ -137,11 +137,11 @@ post-edit APIは派生出力を更新して成功するか、状態変更前に�
 
 `execute_update_plan`は`kRegenerate`を恒久的に拒否する。regenerateは各post-edit APIが編集差分を添えて統一入口を直接呼ぶ。`UpdatePlan`は差分入力を運ばないため、plan経由のregenerate実行は設計として採用しない。
 
-post-edit regenerateと通常生成のcommitは全段階が成功したときだけ本状態へ反映する。どの段階で失敗しても、本状態は変更前と同一でなければならない。trial (状態のコピー)はこの失敗保証の現行実装であり、MutationPlan / journal / copy-on-write等の代替トランザクション方式へ置換できた場合だけ削除できる。
+post-edit regenerateと通常生成のcommitは全段階が成功したときだけ本状態へ反映する。どの段階で失敗しても、本状態は変更前と同一でなければならない。現在は、状態をコピーしたtrialでこの失敗時の保証を実現する。MutationPlan / journal / copy-on-write等の代替トランザクション方式へ置き換えた場合だけ、trialを削除できる。
 
 preflightを増やしたことを理由に本状態直接変更へ戻すことは禁止する。
 
-`GenerateFromBackboneSpec`は状態をコピーしたisolated trialで`prepare`、`check`、`build`を実行し、成功時だけstorageをmove commitする。`GenerationTiming.state_copy_ms`はcopyコストを記録し、66 pole級populated状態に対するcopy gateはgeneration totalの20%以内とする。
+`GenerateFromBackboneSpec`は状態をコピーしたisolated trialで`prepare`、`check`、`build`を実行し、成功時だけstorageをmove commitする。`GenerationTiming.state_copy_ms`はcopyコストを記録し、電柱を66本程度含む状態では、コピーにかかる時間を生成全体の20%以内に収める。
 
 統一regenerateは編集差分から影響scopeを解決し、保存済み入力からscopeのpipeline graphを組み直し、既存pipelineを部分再実行してbindingをreconcileする。既存bindingは再利用し、増えたものは生成し、消えたものは退役する。
 
@@ -163,14 +163,14 @@ post-edit regenerateでは、全段階が成功した後にだけ本状態へ反
 
 通常生成もisolated trialを通す。
 
-`ValidateFast()`、`Validate()`、inspectionは状態を観測して問題を報告する。不足情報の補完、topologyの推測、状態状態変更は行わない。
+`ValidateFast()`、`Validate()`、inspectionは状態を観測して問題を報告する。不足情報の補完、topologyの推測、状態の変更は行わない。
 
 ## Dependency boundary
 
-private generationの担当箇所は`domains/wire/src/generation/backbone`であり、source layerと禁止dependencyは[`tools/arch_manifest.json`](../../tools/arch_manifest.json)および既存arch lintが検査する。
+private generationの担当箇所は`domains/wire/src/generation/backbone`であり、sourceの層分類と禁止された依存関係は[`tools/arch_manifest.json`](../../tools/arch_manifest.json)および既存arch lintが検査する。
 
 CMake target graphや別のlayer taxonomyをこの文書のauthorityにしない。
 
-そのpublic操作入口を実装する`domains/wire/src/generation/generate_from_backbone.cpp`も同じgeneration責務に属し、private pipelineへ直接依存できる。その他のgeneration入力utilityはpipelineを呼ばない。
+公開操作の入口を実装する`domains/wire/src/generation/generate_from_backbone.cpp`も同じgeneration責務に属し、private pipelineへ直接依存できる。それ以外の生成入力用utilityからpipelineを呼ばない。
 
 引用符付きのliteral includeは相対表記でも参照先を解決し、同じ禁止dependencyを検査する。macroで組み立てたinclude、未解決の参照、別名で再実装した判断の意味までは、この静的検査で保証しない。

@@ -1,16 +1,16 @@
 # Road操作意味論(P0-P2 prototype scenario)
 
-Road描画は`docs/editor/draw_interaction.md`の共通契約に従う。開始anchorの確定後、各Clickは表示中のintervalを即時commitする。軽量guideがある場合、Enterは現在のguideをcommitし、成功後にsessionを終了する。
+Roadの描画は`docs/editor/draw_interaction.md`の共通契約に従う。開始anchorを確定した後は、Clickごとに表示中の区間を即時確定する。軽量ガイドがある場合、Enterで現在のガイドを確定し、成功後にsessionを終了する。
 
-Escapeはtransientな描画状態だけを破棄し、roadのundoや削除を呼ばない。
+Escapeは一時的な描画状態だけを破棄し、RoadのUndoや削除を呼ばない。
 
-`city::road`のsupportedシナリオを操作と状態の組で固定する。表にない組み合わせは推測せず`unsupported`とする。この表のシナリオ通過はarchitecture migration完了を意味しない。各public操作の実装契約は次で固定する。
+`city::road`が対応するシナリオを、操作と状態の組で定める。表にない組み合わせは推測せず`unsupported`とする。この表のシナリオが通過しても、設計上の移行が完了したとは判断しない。各公開操作は、次の契約に従って実装する。
 
 ```text
 Request -> Preflight -> OperationPlan -> trial Apply -> generate_road -> Validate -> Commit
 ```
 
-失敗時はauthoritative bytes、derived hash、next ID、inspection / query結果を一切変更しない。public操作から別public操作を呼ばない。
+失敗時は正本のbyte列、派生出力のhash、次のID、inspection / queryの結果を一切変更しない。公開操作から別の公開操作を呼ばない。
 
 Preflightはrequestの形式、ID存在、有限性、明白な値域と、planを作るために必要な局所構造だけを検証する。接続角度、endpoint section互換、branch / junction approach上限、接続setback、split後を含むtrial topologyの成立性はtrial generateの`resolve_connections`以降が一度だけ決める。
 

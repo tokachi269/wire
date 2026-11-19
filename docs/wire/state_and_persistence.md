@@ -16,9 +16,9 @@
 | derived decoration | Core visual generation | support/span周辺の局所設備・短い配線・inline deviceをWireドメインの意味から派生 |
 | settings | `CoreStateAuthoritativeStorage` | 幾何 / visual / variation / context / layoutのユーザー設定 |
 
-生成済みのspan、layout、curve、bounds、visual、port位置からtopologyを復元してはいけない。同じ意味を複数段で再判断せず、下流は上流の決定済み値だけを消費する。ユーザーがUpdate APIで設定しderived出力に影響する値はauthoritativeに置き、実行時キャッシュにmirrorを持たない。
+生成済みのspan、layout、curve、bounds、visual、port位置からtopologyを復元してはいけない。同じ意味を複数段で再判断せず、下流は上流の決定済み値だけを使う。ユーザーがUpdate APIで設定し、派生出力に影響する値は正本に置く。実行時キャッシュにその複製を持たない。
 
-`Pole`は物理support entityでありtopology rootではない。support nodeはpole、ownerless point、external anchorを表せる。spanはport間の生成結果でありtopology authorityではない。
+`Pole`は物理的な支持物を表すエンティティであり、topology rootではない。support nodeはpole、ownerless point、external anchorを表せる。spanはport間の生成結果であり、topologyの正本にはしない。
 
 ## Session draft
 
@@ -31,13 +31,13 @@ pending support nodeの生存期間は次の通り。
 - draw pathのcancel / clearは`ClearPendingSupportNodes()`を呼び、未消費pendingを破棄する。
 - save / loadはpendingを保持しない。load後に古いpending node idがrequestに残っていた場合、preflightは状態変更前に`unknown node reference`として拒否する。
 
-生成失敗時は本状態へcommitしないため、pendingの消費も行わない。retryやclearは同じセッションの一時データ契約に従う。
+生成に失敗した場合は本状態へ反映せず、pending nodeも消費しない。再試行や消去も、同じsessionの一時データの契約に従う。
 
 ## Persistence
 
 保存対象は識別情報とauthoritative storageのみとし、実行時キャッシュとdebug storageは保存しない。loadは保存済みtopology / binding / settingsから既存pipelineを通してlayout、curve、bounds、visualを再導出する。
 
-同一状態のsave -> loadではauthoritativeの再保存byteが一致し、派生出力の意味値と浮動小数bitが一致することをroundtrip等価性とする。実行時固有のバージョンや計測値、container addressは等価性に含めない。
+同一状態をsave -> loadしたときに、正本を再保存したbyte列、派生出力の意味値、浮動小数点のbit表現がそれぞれ一致することをroundtrip等価性とする。実行時固有のバージョン、計測値、コンテナのアドレスは等価性に含めない。
 
 永続形式はバージョンを完全一致で判定する。未知フィールド、必須フィールド欠落、truncation、重複フィールド、構文不正は拒否し、部分的に読み飛ばさない。loadは新しい試行用の状態でparse、index再構築、派生再導出、検証を完了してからmember-wise move commitする。どの段階で失敗しても、本状態は変更前と同一でなければならない。
 
@@ -59,4 +59,4 @@ pending support nodeの生存期間は次の通り。
 | curve / bounds / visual / renderキャッシュpointer、visual curveキャッシュreference | 実行時キャッシュの`unordered_map` / vector | キャッシュ要素の削除・再保存、vector更新、storage代入。rehashはiteratorを無効化する | 保証しない |
 | inspection result内pointer (`PoleDetailInfo`等) | 上記viewが指すstorage | 上記と同じ | 保証しない |
 
-現在public契約として状態変更を跨ぐ参照安定性を保証する利用側はない。既存テストもvalue / id / `ChangeSet`を観測し、pointer addressを不変条件にしてはならない。
+現在の公開契約では、状態変更後も参照が安定していることを保証する利用側はない。既存テストでも値、ID、`ChangeSet`を観測し、ポインターのアドレスを不変条件にしてはならない。

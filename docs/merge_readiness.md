@@ -12,7 +12,7 @@
 - `tools/test_family_lint.py`が通る
 - `git diff --check`が通る
 - working treeが意図した状態である
-- authoritative状態のsave -> loadが、再保存byteと再導出したlayout / curve / bounds / visualのbit-exact roundtripテストを通る
+- 正本のsave -> loadで、再保存したbyte列と、再導出したlayout / curve / bounds / visualがbit-exact roundtripのテストを通る
 
 実行コマンドは[command_cheatsheet.md](command_cheatsheet.md)を参照する。
 
@@ -23,11 +23,11 @@
 - layout/geom/drawが上流判断を再実行しない
 - viewer/inspectionが状態を補正しない
 - v1/recalc/materializationへのfallbackがない
-- post-edit regenerateと通常生成`GenerateFromBackboneSpec`は入力 / 識別情報 / binding / 構造条件を満たさないunsupported requestを状態変更前に拒否し、派生幾何固有の後半失敗でも本状態を変更しない
-- post-edit successがstale出力を残さない
-- wire coreが外部ドメイン型へ依存しない
-- bundleテンプレート識別情報は`BundleTemplateId`であり、`BundleKind`はcategory/tagとしてのみ使う
+- post-edit regenerateと通常生成の`GenerateFromBackboneSpec`は、入力、識別情報、binding、構造条件を満たさない要求を状態変更前にunsupportedとして拒否する。後半の派生幾何処理で失敗した場合も、本状態を変更しない
+- post-editの成功時に古い出力を残さない
+- Wire Coreが他ドメインの型へ依存しない
+- Bundleのテンプレートを識別するには`BundleTemplateId`を使い、`BundleKind`はcategory/tagとしてだけ使う
 
 ## merge可能条件
 
-必須checkが全て通った時点でsource上はmerge可能と判断する。実画面の最終確認とmainとの競合確認は別途行う。
+必須の確認が全て通った時点で、source上はmerge可能と判断する。実画面の最終確認とmainとの競合確認は別途行う。

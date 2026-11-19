@@ -219,6 +219,34 @@ def check_backbone_semantics_coverage(root: Path) -> list[str]:
     errors.extend(check_authority_guard_owners(authority_guards, production_text))
     return errors
 
+JAPANESE_RANGE = re.compile(r"[\u3040-\u30ff\u4e00-\u9fff]")
+
+
+def check_document_notation(root: Path) -> list[str]:
+    # コード表記は原文のまま読めることを前提にするため、日本語を混ぜない。
+    errors: list[str] = []
+    targets = sorted((root / "docs").rglob("*.md")) + sorted((root / "domains/wire/tests").rglob("*.md"))
+    for path in targets:
+        relative = path.relative_to(root).as_posix()
+        in_fence = False
+        for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").split("\n"), 1):
+            if line.lstrip().startswith("```"):
+                in_fence = not in_fence
+                continue
+            if in_fence:
+                if JAPANESE_RANGE.search(line):
+                    errors.append(
+                        f"{relative}:{number}: code fence contains Japanese text; use a table or prose"
+                    )
+                continue
+            for span in re.findall(r"`([^`]+)`", line):
+                if JAPANESE_RANGE.search(span):
+                    errors.append(
+                        f"{relative}:{number}: inline code span contains Japanese text: {span[:40]}"
+                    )
+    return errors
+
+
 def check_architecture_documents(root: Path) -> list[str]:
     required_tokens = {
         "docs/architecture.md": (
@@ -234,7 +262,7 @@ def check_architecture_documents(root: Path) -> list[str]:
             "## 保護手段の優先順位",
             "## Oracleの独立性",
             "## 振る舞いprobe catalog",
-            "### Pattern選択guide",
+            "### 選び方",
             "## Regression lifecycle",
             "## Testの退役",
         ),
@@ -452,6 +480,7 @@ def main() -> int:
                     errors.append(f"{source}: wire core forbids city-domain symbol {symbol!r}")
 
     errors.extend(check_architecture_documents(root))
+    errors.extend(check_document_notation(root))
     errors.extend(check_backbone_semantics_coverage(root))
     errors.extend(check_draw_interaction_contract(root))
     errors.extend(check_road_architecture(root))

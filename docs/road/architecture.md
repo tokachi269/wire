@@ -528,9 +528,9 @@ include/city/road/input_types/
 include/city/road/authoritative_types/
 include/city/road/derived_types/
 src/generation/     generate, segments, connections, markings, emit
-src/geometry/       alignment / section / junction の純粋幾何
+src/geometry/
 src/operations/
 src/persistence/
 ```
 
-物理分割は担当箇所を固定するために行い、工程数と一致させない。emitはauthoritative headerをincludeせず、adapterはauthoritative型を構築しない。幾何はgraphを読むがderivedを書かない。
+`src/geometry/`はalignment、section、junctionの純粋幾何を持つ。物理分割は担当箇所を固定するために行い、工程数と一致させない。emitはauthoritative headerをincludeせず、adapterはauthoritative型を構築しない。幾何はgraphを読むがderivedを書かない。

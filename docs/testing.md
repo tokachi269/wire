@@ -18,14 +18,12 @@ Primary proofを用意せず、多数の間接シナリオやSourceGuardで代�
 
 対象の故障を防げる範囲で、最も強い保護手段を優先する。
 
-```text
-capability / type / module boundary
-  > architecture structural lint
-  > behavioral Primary proof
-  > metamorphic / differential proof
-  > Scenario / End-to-end proof
-  > full regression suite
-```
+1. capability / type / module boundary
+2. architecture structural lint
+3. behavioral Primary proof
+4. metamorphic / differential proof
+5. Scenario / End-to-end proof
+6. full regression suite
 
 上位の仕組みを導入しても、異なる故障を検出する下位の仕組みは残す。品質は、重要な契約ごとに独立した証明があるかで評価する。テスト数や網羅率は品質の目標にしない。
 
@@ -51,7 +49,7 @@ Primary proofの期待値は、検査対象と同じ判断処理や補助関数�
 
 システムの性質と現実的な故障をもとに、検証方法を選ぶ。以下は選択肢の一覧であり、全項目の実施やテスト数の達成は要求しない。
 
-| Systemの性質 | 代表的なprobe |
+| 対象の性質 | 代表的なprobe |
 |---|---|
 | 状態を持つ更新処理 | 失敗時の原子性、無関係な状態への非干渉、操作の契約に含まれる場合の決定的な繰り返し |
 | Persistence | save → load → save、load後に再構築した派生出力の等価性、失敗したloadで識別情報・ID・カウンターが不変 |
@@ -62,9 +60,9 @@ Primary proofの期待値は、検査対象と同じ判断処理や補助関数�
 | 幾何・方向付きデータ | 定義された意味を保つ入力反転、対称変換、順序の入れ替え |
 | 状態を持つ操作列 | seedを固定した決定的な操作列、各段階の不変条件、定期的な保存・復元、不正操作時の状態不変 |
 
-### Pattern選択guide
+### 選び方
 
-| Featureの性質 | 最初に検討するもの |
+| 機能の性質 | 最初に検討するもの |
 |---|---|
 | 正本の変更 | 原子性と無関係な状態への非干渉 |
 | キャッシュ・差分による派生生成 | 全量再構築と差分更新の比較、古いキャッシュが残らないことの確認 |
@@ -95,17 +93,15 @@ Primary proofの期待値は、検査対象と同じ判断処理や補助関数�
 
 不具合修正では次の手順に従う。
 
-```text
-incident reproducer
-  -> root cause
-  -> underlying contract
-  -> Primary proofの作成または強化
-  -> semantic faultの再注入
-  -> 強化したproofが検出することを確認
-  -> fixを実装
-  -> counterfactualと無関係stateを確認
-  -> 完全に包含されたreproducerを削除または縮小
-```
+1. 不具合を再現する
+2. 根本原因を特定する
+3. 背後にある契約を決める
+4. その契約のPrimary proofを作るか強化する
+5. 同じ意味の故障を再注入する
+6. 強化したPrimary proofが検出することを確認する
+7. 修正を実装する
+8. 反例と、無関係な状態への非干渉を確認する
+9. 完全に包含された再現テストを削除または縮小する
 
 不具合ごとに恒久テストを1件残すことは既定にしない。入力や期待値の根拠に、基礎契約の直接検証とは別の価値がある場合だけ、不具合固有のシナリオを残す。
 

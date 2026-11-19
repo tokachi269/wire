@@ -7,7 +7,7 @@
 - 期待値粒度: `Exact`は決定論のみ、`Invariant`は不変条件のみ。
 - モック方針: ドメインロジックのモック禁止（本スイートはモック未使用）。
 - 時間/並行: 実時間待ち・非決定並行を使わない。
-- 分類ルール: `分類=Symptom`は最終症状やユーザ価値を直接固定する行、`分類=Authority`は正本・ownership・decision originを固定する行。
+- 分類ルール: 分類がSymptomは最終症状やユーザ価値を直接固定する行、分類がAuthorityは正本・ownership・decision originを固定する行。
 - 永続化Boundary: `CoreStateAuthoritativeStorage`へフィールドを追加する変更は、serializer・deserializer・roundtripテストの更新を伴う。
 
 ## 実行時coverage方針
@@ -15,7 +15,7 @@
 - 操作×状態coverageはこのledgerへ手書きしない。`C836`が正本状態を実行時分類し、full `wire_core_tests`の終了時に意味論文書のrequired cellと照合する。
 - coverageとして認めるケースは`oracle` / `anchor` / `presence` / `differential`のいずれかを実行時記録する。`derived_equality`単独は認めない。
 - source textを検査するケースは`SourceGuard` familyで登録し、操作×状態coverageには数えない。
-- Web入口coverageは同じ意味論文書の`入口境界`をテストから直接読み、WASM adapterとViewerActionsの実payloadを通す。
+- Web入口coverageは同じ意味論文書の入口境界をテストから直接読み、WASM adapterとViewerActionsの実payloadを通す。
 - `legacy_unclassified`は既存ケースの根拠種別が未移行であることを明示する値であり、実行時coverage evidenceではない。
 
 過去の有効性監査は[`audits/`](audits/)に保管する。この台帳には現行の証明とindexだけを記載する。

@@ -8,12 +8,12 @@
 
 ## 3層構造
 
-```text
-mesh asset(fbx/glTF等)   adapter側。coreは読まない
-model descriptor           meshから抽出+手動overrideした一時的な数値契約。engine非依存
-model assembly template    配置に使うpart、socket、local transform。core正本
-core template              PoleTypeDefinition / BundleTemplate等。assembly idを参照する
-```
+| 層 | 内容 |
+|---|---|
+| mesh asset(fbx/glTF等) | adapter側。coreは読まない |
+| model descriptor | meshから抽出し手動overrideを足した一時的な数値契約。engine非依存 |
+| model assembly template | 配置に使うpart、socket、local transform。core正本 |
+| core template | `PoleTypeDefinition` / `BundleTemplate`等。assembly idを参照する |
 
 descriptorはengine非依存の数値契約であり、エンジン決定前に固定できる。bbox等の抽出はdescriptorを生成するimportツールの仕事で、coreには入れない。
 
@@ -90,14 +90,14 @@ beltのfitは単一transformで表せる円形柱近似に限定する。非円�
 
 ## model配置のownerと親参照
 
-```text
-Pole                         -> pole visual assembly(body、電線非関連装飾)
-SavedBackboneRowKey          -> PlacementRule::at_row の row fixture assembly(crossarm、belt)
-Port                         -> PlacementRule::at_endpoint の endpoint fixture assembly(insulator、clamp相当)
-Span anchor                  -> PlacementRule::interval の span上 assembly(テスト用。既定templateでは未使用)
-Entity-layer Attachment      -> span途中のinline model
-Core derived decoration      -> Pole/SupportNode/Span由来の局所detail modelと短い配線をCore visual outputへ派生
-```
+| owner | 配置するmodel |
+|---|---|
+| `Pole` | pole visual assembly(body、電線非関連装飾) |
+| `SavedBackboneRowKey` | `PlacementRule::at_row`のrow fixture assembly(crossarm、belt) |
+| `Port` | `PlacementRule::at_endpoint`のendpoint fixture assembly(insulator、clamp相当) |
+| Span anchor | `PlacementRule::interval`のspan上assembly(テスト用。既定templateでは未使用) |
+| Entity-layer `Attachment` | span途中のinline model |
+| Core derived decoration | `Pole` / `SupportNode` / `Span`由来の局所detail modelと短い配線をCore visual outputへ派生 |
 
 Coreのモデル契約には用途名を持ち込まない。assemblyはpart、local transform、限定fit mode、名前付きsocketだけを持つ。socket無しassemblyは表示だけで、curve endpointを変更しない。
 
@@ -121,11 +121,11 @@ row fixtureとPort fixtureはgenericモデルassemblyから派生し、旧い用
 
 配置されるinstanceの親参照は次の3種だけに限定する。
 
-```text
-MountRef::pole_frame      PoleFrame/layout yaw等から作ったroot frame
-MountRef::span_anchor     curve上の純関数anchor frame
-MountRef::instance_socket 親instance ID + socket名
-```
+| 親参照 | 意味 |
+|---|---|
+| `MountRef::pole_frame` | `PoleFrame`やlayout yawから作ったroot frame |
+| `MountRef::span_anchor` | curve上の純関数anchor frame |
+| `MountRef::instance_socket` | 親instance IDとsocket名 |
 
 world transformはmount graphの解決関数が親チェーンを辿って合成する。深さは固定しない。socket欠落や循環はunsupportedとして明示し、近傍幾何やモデル名から補完しない。row/endpointの現行2配置もこの機構へ載せる。row fixtureは`pole_frame`、endpoint fixtureはrow側の`endpoint_mount_socket`がある場合は`instance_socket`、無い場合は`pole_frame`を親にする。
 
@@ -156,11 +156,11 @@ adapter/viewer側でEuler順やlayout yaw合成を再解釈しない。
 
 テンプレートの配置指定は`PlacementRule`のリストで表し、bit flagは使わない。
 
-```text
-PlacementRule::at_row       既存のrow fixture相当
-PlacementRule::at_endpoint  既存のendpoint fixture相当
-PlacementRule::interval     spacing/phaseでspan上にanchor frame列を作る純関数
-```
+| 指定 | 意味 |
+|---|---|
+| `PlacementRule::at_row` | 既存のrow fixture相当 |
+| `PlacementRule::at_endpoint` | 既存のendpoint fixture相当 |
+| `PlacementRule::interval` | spacingとphaseでspan上にanchor frame列を作る純関数 |
 
 外部APIの`rowFixtureAssemblyId` / `endpointFixtureAssemblyId`は互換入力として残すが、意味解釈はadapter 1箇所で`PlacementRule`へ変換する。モデルmaterializationは旧フィールドを直接読まない。
 

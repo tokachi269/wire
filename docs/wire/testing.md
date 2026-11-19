@@ -36,7 +36,7 @@ Backbone fixtureは`domains/wire/tests/backbone/fixtures.*`に置く。Testはv1
 - 各`Observe`が返すtokenへ、その操作実行後の`oracle`、`anchor`、`presence`、`differential`を結び付ける。テストケース内の別cellに対する検証条件、fixture構築成功、Observe自体はそのcellのevidenceにしない。
 - 正本表から生成した期待動作も実行時へ渡す。`VerifyOutcome`は観測時と操作後の継続関係をnode、edge bundle、laneで比較し、既存関係の保存と成功時の`C/O/K`の一致を検査する。証拠を持っていても動作を照合していない観測は未検証として扱う。
 - Coreはすべてのrequired cellを`core_api`経由で実行する。
-- WASMとviewerのテストは`backbone_operation_semantics.md`の`入口境界`表を読み、実payloadを実行する。
+- WASMとviewerのテストは`backbone_operation_semantics.md`の入口境界表を読み、実payloadを実行する。
 - `derived_equality`だけを記録するケースは独立した証拠ではない。Full coreテスト出力は該当ケースを列挙する。
 
 この照合が守るのは接続の遷移である。`K`の派生更新、失敗時の正本・派生・セッションの一時データ不変、対象外への非干渉、Port/Span識別情報、保存と再導出の等価性は、該当する既存の契約テストが検証する。セル到達や共通不変条件の成功から、これらの操作別契約まで検証済みとは扱わない。

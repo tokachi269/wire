@@ -137,6 +137,33 @@ class RepositoryArchitectureChecksTest(unittest.TestCase):
         self.assertEqual([], guards)
         self.assertTrue(any("unquoted unique token" in error for error in parse_errors))
 
+    def test_document_notation_rejects_japanese_in_code_spans(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.write(root, "docs/sample.md", nl_join((
+                "# sample",
+                "`入口境界`を参照する。",
+                "```text",
+                "state -> 日本語の説明",
+                "```",
+            )))
+            errors = arch_lint.check_document_notation(root)
+        self.assertTrue(any("inline code span contains Japanese" in error for error in errors))
+        self.assertTrue(any("code fence contains Japanese" in error for error in errors))
+
+    def test_document_notation_allows_ascii_code(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.write(root, "docs/sample.md", nl_join((
+                "# sample",
+                "`SavedBackboneGraph`を正本とする。",
+                "```text",
+                "src/geometry/",
+                "```",
+            )))
+            errors = arch_lint.check_document_notation(root)
+        self.assertEqual([], errors)
+
     def test_bindings_required_tokens_are_each_connected(self) -> None:
         required_tokens = (
             "preview_placements",

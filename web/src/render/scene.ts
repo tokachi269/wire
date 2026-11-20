@@ -37,7 +37,6 @@ export const WIRE_RADIAL_SEGMENTS = 3;
 const BACKBONE_DISPLAY_PLANE_Z = 0.0;
 const LOCAL_DECORATION_SUPPLEMENTAL_KIND = 3;
 const HIDDEN_SUPPORT_DETAIL_MODEL_KEYS = new Set([
-  "pole_decoration_x",
   "pole_transformer_20kva_proxy",
   "transformer_intermediate_insulator_proxy",
   "transformer_support_bracket_proxy",
@@ -1640,8 +1639,7 @@ export class WireScene {
     const modelsByKey = new Map<string, VisualModelInstanceInfo[]>();
     let visibleModelCount = 0;
     for (const model of snapshot.models) {
-      if (model.stableKey.startsWith("pole-decoration:") ||
-          HIDDEN_SUPPORT_DETAIL_MODEL_KEYS.has(model.modelKey)) continue;
+      if (HIDDEN_SUPPORT_DETAIL_MODEL_KEYS.has(model.modelKey)) continue;
       visibleModelCount += 1;
       nextModelKeys.add(model.stableKey);
       if (model.stableKey.startsWith("pole:")) {

@@ -65,6 +65,18 @@ kindで探すAPIはgrouping/filterとして複数idを返し、`BundleKind`か�
 - この近似ではbelt幅内のtaperをasset形状に委ね、板厚の径方向成分も半径比に応じて伸縮する。
   clearanceフィールド、下端・上端半径、頂点単位の径方向変形、専用shader、高さ別belt assetは持たない。
 
+## 変圧器のバンド
+
+beltは円環1つなので配置高さの`pole_radius_at_height_m`へradial scaleできる。変圧器のバンドは電柱とタンクの両方を1周する閉ループであり、2つの円の共通接線で形が決まるため、単一transformでは電柱径に追従しない。したがってバンドは焼き込みとし、fit modeは`kRigid`に限定する。
+
+- 生成元は`tools/models/pole_transformer_m_01.ts`、焼き込みは`tools/models/export_pole_transformer.mjs`が行う。
+- exporterはpole primitiveのtop diameterとtaper ratioから公称取付高さでの半径を求め、模型内部のtaper係数と併せて渡す。バンドが2段あっても各段の高さで正しい電柱径になる。
+- 公称取付高さはexporterの`MOUNT_HEIGHT_M`とadapterの`TRANSFORMER_MOUNT_HEIGHT_M`が同じ値を持つ。変えるときは両方を直して再exportする。
+- 取付高さが公称から1m動いても電柱半径の差は7mm程度で、バンドの板厚と同程度に収まる。高さ別assetは持たない。
+- 腕金は焼き込まない。既存の`hv_crossarm`をassemblyの別partとして置き、長さはlocal transformのscaleで決める。
+- 電柱への付き方と、どこまでを1モデルに含めるかは`pole_fittings.md`が決める。
+- assetを焼き直したらassemblyの`version`を上げる。descriptorはbounds差分を検出するが、bootstrapは既存assemblyとの差分を新しいversionなしでは受け付けず、保存済みworkspaceの復元が失敗する。
+
 ## 電柱本体の長さ
 
 - 電柱本体は長さ別meshを基本的に持たない。十分長い本体meshを使い、地面下への埋まり量で見える高さを吸収する。

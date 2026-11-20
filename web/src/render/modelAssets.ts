@@ -13,6 +13,7 @@ import communicationClampLongUrl from "../assets/communication_clamp_long_1.glb?
 import crossarmHvUrl from "../assets/crossarm_hv_1p7m.glb?url";
 import hvInsulatorUrl from "../assets/hv_phase_1_disc_3.glb?url";
 import poleBodyUrl from "../assets/pole_body_tapered_12m_visible10m.glb?url";
+import poleTransformerUrl from "../assets/pole_transformer_m_01.glb?url";
 
 export type ModelAssetKind =
   | "belt"
@@ -21,8 +22,8 @@ export type ModelAssetKind =
   | "crossarmHv"
   | "hvInsulator"
   | "poleBody"
+  | "poleTransformerM01"
   | "nonHvSupportRowProxy"
-  | "poleDecorationX"
   | "poleTransformer20kvaProxy"
   | "transformerIntermediateInsulatorProxy"
   | "transformerSupportBracketProxy"
@@ -39,8 +40,8 @@ export type ModelKey =
   | "hv_crossarm"
   | "hv_insulator"
   | "pole_body"
+  | "pole_transformer_m_01"
   | "non_hv_support_row_proxy"
-  | "pole_decoration_x"
   | "pole_transformer_20kva_proxy"
   | "transformer_intermediate_insulator_proxy"
   | "transformer_support_bracket_proxy"
@@ -50,7 +51,7 @@ export type ModelKey =
   | "hv_triplex_termination_60_proxy"
   | "aerial_optical_closure_rca3ao_proxy";
 
-type MountRule = "center" | "bottom" | "pole-ground";
+type MountRule = "center" | "bottom" | "origin" | "pole-ground";
 
 export interface ModelAssetAdapter {
   modelKey: ModelKey;
@@ -85,6 +86,15 @@ const polePrimitive = {
 } as const;
 const poleRadiusAtDistanceFromTop = (distanceM: number): number =>
   (polePrimitive.topDiameterM + distanceM / polePrimitive.taperRatio) * 0.5;
+
+// tools/models/export_pole_transformer.mjs bakes the strap loops for the pole
+// radius at this height, so the asset and the placement have to agree on it.
+const TRANSFORMER_MOUNT_HEIGHT_M = 7.26;
+const TRANSFORMER_TANK_TO_POLE_GAP_M = 0.0635;
+const TRANSFORMER_TANK_MAX_RADIUS_M = 0.2525;
+const transformerAxisDistanceM =
+  poleRadiusAtDistanceFromTop(polePrimitive.visibleHeightM - TRANSFORMER_MOUNT_HEIGHT_M) +
+  TRANSFORMER_TANK_TO_POLE_GAP_M + TRANSFORMER_TANK_MAX_RADIUS_M;
 
 const adapters: Record<ModelAssetKind, ModelAssetAdapter> = {
   belt: {
@@ -130,15 +140,17 @@ const adapters: Record<ModelAssetKind, ModelAssetAdapter> = {
     radialTopM: poleRadiusAtDistanceFromTop(0.0),
     adapterVersion: 5
   },
+  poleTransformerM01: {
+    modelKey: "pole_transformer_m_01",
+    url: poleTransformerUrl,
+    // The strap loops are authored around the pole axis, so the authored origin
+    // is the mount datum; a bounds-derived anchor would move the tank off it.
+    mountRule: "origin",
+    adapterVersion: 1
+  },
   nonHvSupportRowProxy: {
     modelKey: "non_hv_support_row_proxy",
     url: "primitive:non_hv_support_row_proxy",
-    mountRule: "center",
-    adapterVersion: 1
-  },
-  poleDecorationX: {
-    modelKey: "pole_decoration_x",
-    url: "primitive:pole_decoration_x",
     mountRule: "center",
     adapterVersion: 1
   },
@@ -199,6 +211,7 @@ const kindByModelKey = new Map<ModelKey, ModelAssetKind>(
 function mountAnchor(bounds: THREE.Box3, size: THREE.Vector3, rule: MountRule): THREE.Vector3 {
   const center = bounds.getCenter(new THREE.Vector3());
   if (rule === "center") return center;
+  if (rule === "origin") return new THREE.Vector3(0, 0, 0);
   if (rule === "bottom") return new THREE.Vector3(center.x, bounds.min.y, center.z);
   const buriedRatio =
     (polePrimitive.totalLengthM - polePrimitive.visibleHeightM) / polePrimitive.totalLengthM;
@@ -296,25 +309,6 @@ function makeNonHvSupportRowProxy(): THREE.Group {
   return group;
 }
 
-function makePoleDecorationX(): THREE.Group {
-  const group = new THREE.Group();
-  const zinc = 0x969d9f;
-  const porcelain = 0xd9d8cf;
-  const tank = 0x8f9698;
-  addMesh(group, new THREE.BoxGeometry(0.700, 0.040, 0.045), zinc, [-0.34, 0, -0.05], [0, 0, 0], 0.35);
-  addMesh(group, new THREE.BoxGeometry(0.045, 0.260, 0.035), zinc, [-0.16, -0.110, -0.070], [0, 0, 0], 0.35);
-  addMesh(group, new THREE.BoxGeometry(0.045, 0.260, 0.035), zinc, [-0.52, -0.110, -0.070], [0, 0, 0], 0.35);
-  addMesh(group, new THREE.CylinderGeometry(0.200, 0.200, 0.550, 12), tank, [0.08, 0, 0], [Math.PI / 2, 0, 0]);
-  addMesh(group, new THREE.CylinderGeometry(0.215, 0.215, 0.030, 12), 0xa8adb0, [0.08, 0, 0.290], [Math.PI / 2, 0, 0], 0.22);
-  addMesh(group, new THREE.CylinderGeometry(0.215, 0.215, 0.030, 12), 0x777f82, [0.08, 0, -0.290], [Math.PI / 2, 0, 0], 0.22);
-  for (const y of [-0.18, 0.18]) {
-    addMesh(group, new THREE.CylinderGeometry(0.045, 0.045, 0.220, 8), porcelain, [-0.46, y, 0.38], [0, 0, Math.PI / 2]);
-    addMesh(group, new THREE.CylinderGeometry(0.012, 0.012, 0.080, 8), zinc, [-0.60, y, 0.38], [0, 0, Math.PI / 2], 0.48);
-    addMesh(group, new THREE.CylinderGeometry(0.012, 0.012, 0.080, 8), zinc, [-0.32, y, 0.38], [0, 0, Math.PI / 2], 0.48);
-  }
-  return group;
-}
-
 function makePc6CutoutProxy(): THREE.Group {
   const group = new THREE.Group();
   const porcelain = 0xd9d8cf;
@@ -378,7 +372,6 @@ export class ModelAssetCache {
   private readonly loads = new Map<ModelAssetKind, number>();
 
   constructor(private readonly loadScene: SceneLoader = loadGltfScene) {
-    this.registerPrimitiveSource("poleDecorationX", makePoleDecorationX());
     this.registerPrimitiveSource("nonHvSupportRowProxy", makeNonHvSupportRowProxy());
     this.registerPrimitiveSource("poleTransformer20kvaProxy", makePoleTransformer20kvaProxy());
     this.registerPrimitiveSource("transformerIntermediateInsulatorProxy", makeTransformerIntermediateInsulatorProxy());
@@ -546,7 +539,7 @@ export function buildDefaultModelBootstrap(
   insulator: LoadedModelAsset,
   communicationClamp: LoadedModelAsset,
   communicationClampLong: LoadedModelAsset,
-  poleDecoration: LoadedModelAsset
+  transformer: LoadedModelAsset
 ): ModelAssemblyBootstrapInput {
   const poleVisibleLength = pole.adapter.visibleLengthM;
   if (poleVisibleLength === undefined || !Number.isFinite(poleVisibleLength) || poleVisibleLength <= 0) {
@@ -597,35 +590,61 @@ export function buildDefaultModelBootstrap(
 
   const communicationInsertion = insertionFixture(communicationClamp);
   const lowVoltageInsertion = insertionFixture(communicationClampLong);
-  const decorationTransform = identityTransform();
-  decorationTransform.positionX = 0.62;
-  decorationTransform.positionY = 0.42;
-  decorationTransform.positionZ = 7.70;
-  const decorationSockets: ModelSocketInput[] = [
+  const transformerTransform = identityTransform();
+  transformerTransform.positionX = transformerAxisDistanceM;
+  transformerTransform.positionZ = TRANSFORMER_MOUNT_HEIGHT_M;
+  // A transformer platform is bolted to the pole by a pair of arms that clamp it
+  // from both sides, so the arms run past the pole instead of ending at its face,
+  // and the authored length covers the arrester end as well as the tank.
+  const transformerArmLengthM = 1.5;
+  const transformerArmCenterXM = 0.5;
+  const transformerArmOffsetYM =
+    poleRadiusAtDistanceFromTop(polePrimitive.visibleHeightM - TRANSFORMER_MOUNT_HEIGHT_M) +
+    crossarm.size.z * 0.5;
+  // Reused rather than exported with the transformer so the arms keep the
+  // existing textured crossarm asset.
+  const transformerArmTransform = (side: number): ModelTransformInput => {
+    const transform = identityTransform();
+    transform.scaleX = transformerArmLengthM / crossarm.size.x;
+    transform.positionX = transformerArmCenterXM;
+    transform.positionY = side * transformerArmOffsetYM;
+    transform.positionZ = TRANSFORMER_MOUNT_HEIGHT_M - crossarm.size.y * 0.5;
+    return transform;
+  };
+  // The high-voltage bushings face -Y, so the arm on that side is the one the
+  // outboard insulator sits on.
+  const transformerArmInsulatorTransform = identityTransform();
+  transformerArmInsulatorTransform.positionX =
+    transformerArmCenterXM + transformerArmLengthM * 0.5 - 0.09;
+  transformerArmInsulatorTransform.positionY = -transformerArmOffsetYM;
+  transformerArmInsulatorTransform.positionZ = TRANSFORMER_MOUNT_HEIGHT_M;
+  // Positions are the asset's own sockets and tank underside, converted from
+  // glTF Y-up to the Core-local Z-up frame the loader normalizes parts into.
+  const transformerSockets: ModelSocketInput[] = [
     {
       name: "connect_hv_0",
-      positionX: -0.60, positionY: -0.18, positionZ: 0.38,
-      directionX: -1, directionY: 0, directionZ: 0
+      positionX: -0.20, positionY: -0.125, positionZ: 0.655,
+      directionX: -0.35, directionY: 0, directionZ: 1
     },
     {
       name: "connect_hv_1",
-      positionX: -0.60, positionY: 0.18, positionZ: 0.38,
-      directionX: -1, directionY: 0, directionZ: 0
+      positionX: 0.225, positionY: -0.125, positionZ: 0.602,
+      directionX: 0.35, directionY: 0, directionZ: 1
     },
     {
       name: "connect_lv_0",
-      positionX: 0.16, positionY: -0.16, positionZ: -0.30,
-      directionX: 0, directionY: -1, directionZ: -0.2
+      positionX: -0.10, positionY: -0.10, positionZ: 0,
+      directionX: 0, directionY: -0.25, directionZ: -1
     },
     {
       name: "connect_lv_1",
-      positionX: 0.20, positionY: 0, positionZ: -0.32,
-      directionX: 0, directionY: -1, directionZ: -0.2
+      positionX: 0, positionY: -0.10, positionZ: 0,
+      directionX: 0, directionY: -0.25, directionZ: -1
     },
     {
       name: "connect_lv_2",
-      positionX: 0.16, positionY: 0.16, positionZ: -0.30,
-      directionX: 0, directionY: -1, directionZ: -0.2
+      positionX: 0.10, positionY: -0.10, positionZ: 0,
+      directionX: 0, directionY: -0.25, directionZ: -1
     }
   ];
 
@@ -636,7 +655,7 @@ export function buildDefaultModelBootstrap(
   const communicationPoleAssemblyId = 9205;
   const lowVoltageEndpointAssemblyId = 9206;
   const beltRowAssemblyId = 9207;
-  const poleDecorationAssemblyId = 9208;
+  const poleTransformerAssemblyId = 9208;
   return {
     assemblies: [
       {
@@ -696,9 +715,14 @@ export function buildDefaultModelBootstrap(
         wireSocket: null
       },
       {
-        id: poleDecorationAssemblyId,
-        version: 1,
-        parts: [part(poleDecoration, 1, 0, decorationTransform, decorationSockets)],
+        id: poleTransformerAssemblyId,
+        version: 4,
+        parts: [
+          part(transformer, 1, 0, transformerTransform, transformerSockets),
+          part(crossarm, 2, 0, transformerArmTransform(-1)),
+          part(crossarm, 3, 0, transformerArmTransform(1)),
+          part(insulator, 4, 0, transformerArmInsulatorTransform)
+        ],
         wireSocket: null
       }
     ],
@@ -738,7 +762,7 @@ export function buildDefaultModelBootstrap(
 }
 
 export async function loadDefaultModelBootstrap(): Promise<ModelAssemblyBootstrapInput> {
-  const [pole, crossarm, belt, insulator, communicationClamp, communicationClampLong, poleDecoration] =
+  const [pole, crossarm, belt, insulator, communicationClamp, communicationClampLong, transformer] =
     await Promise.all([
       modelAssetCache.load("poleBody"),
       modelAssetCache.load("crossarmHv"),
@@ -746,10 +770,10 @@ export async function loadDefaultModelBootstrap(): Promise<ModelAssemblyBootstra
       modelAssetCache.load("hvInsulator"),
       modelAssetCache.load("communicationClamp"),
       modelAssetCache.load("communicationClampLong"),
-      modelAssetCache.load("poleDecorationX")
+      modelAssetCache.load("poleTransformerM01")
     ]);
   return buildDefaultModelBootstrap(
-    pole, crossarm, belt, insulator, communicationClamp, communicationClampLong, poleDecoration
+    pole, crossarm, belt, insulator, communicationClamp, communicationClampLong, transformer
   );
 }
 

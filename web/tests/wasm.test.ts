@@ -172,16 +172,16 @@ async function productionLikeModelBootstrap(): Promise<ModelAssemblyBootstrapInp
     return source;
   };
   const cache = new ModelAssetCache(load);
-  const [pole, crossarm, belt, insulator, clamp, clampLong, poleDecoration] = await Promise.all([
+  const [pole, crossarm, belt, insulator, clamp, clampLong, poleTransformer] = await Promise.all([
     cache.load("poleBody"),
     cache.load("crossarmHv"),
     cache.load("belt"),
     cache.load("hvInsulator"),
     cache.load("communicationClamp"),
     cache.load("communicationClampLong"),
-    cache.load("poleDecorationX")
+    cache.load("poleTransformerM01")
   ]);
-  return buildDefaultModelBootstrap(pole, crossarm, belt, insulator, clamp, clampLong, poleDecoration);
+  return buildDefaultModelBootstrap(pole, crossarm, belt, insulator, clamp, clampLong, poleTransformer);
 }
 
 function defaultBundlePlacements(): BundlePlacement[] {

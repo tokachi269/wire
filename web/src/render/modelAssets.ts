@@ -78,13 +78,13 @@ export interface LoadedModelAsset {
 
 type SceneLoader = (url: string) => Promise<THREE.Group>;
 
-const polePrimitive = {
+export const polePrimitive = {
   totalLengthM: 12.0,
   visibleHeightM: 10.0,
   topDiameterM: 0.190,
   taperRatio: 75.0
 } as const;
-const poleRadiusAtDistanceFromTop = (distanceM: number): number =>
+export const poleRadiusAtDistanceFromTop = (distanceM: number): number =>
   (polePrimitive.topDiameterM + distanceM / polePrimitive.taperRatio) * 0.5;
 
 // tools/models/export_pole_transformer.mjs bakes the strap loops for the pole
@@ -96,7 +96,7 @@ const transformerAxisDistanceM =
   poleRadiusAtDistanceFromTop(polePrimitive.visibleHeightM - TRANSFORMER_MOUNT_HEIGHT_M) +
   TRANSFORMER_TANK_TO_POLE_GAP_M + TRANSFORMER_TANK_MAX_RADIUS_M;
 
-const adapters: Record<ModelAssetKind, ModelAssetAdapter> = {
+export const modelAssetAdapters: Record<ModelAssetKind, ModelAssetAdapter> = {
   belt: {
     modelKey: "pole_belt",
     url: beltUrl,
@@ -205,7 +205,7 @@ const adapters: Record<ModelAssetKind, ModelAssetAdapter> = {
 };
 
 const kindByModelKey = new Map<ModelKey, ModelAssetKind>(
-  Object.entries(adapters).map(([kind, adapter]) => [adapter.modelKey, kind as ModelAssetKind])
+  Object.entries(modelAssetAdapters).map(([kind, adapter]) => [adapter.modelKey, kind as ModelAssetKind])
 );
 
 function mountAnchor(bounds: THREE.Box3, size: THREE.Vector3, rule: MountRule): THREE.Vector3 {
@@ -384,7 +384,7 @@ export class ModelAssetCache {
   }
 
   private registerPrimitiveSource(kind: ModelAssetKind, source: THREE.Group): void {
-    const adapter = adapters[kind];
+    const adapter = modelAssetAdapters[kind];
     source.updateMatrixWorld(true);
     const bounds = new THREE.Box3().setFromObject(source, true);
     const size = bounds.getSize(new THREE.Vector3());
@@ -411,7 +411,7 @@ export class ModelAssetCache {
     if (loaded !== undefined) return Promise.resolve(loaded);
     const cached = this.promises.get(kind);
     if (cached !== undefined) return cached;
-    const adapter = adapters[kind];
+    const adapter = modelAssetAdapters[kind];
     this.loads.set(kind, (this.loads.get(kind) ?? 0) + 1);
     const pending = this.loadScene(adapter.url).then((rawSource) => {
       rawSource.updateMatrixWorld(true);

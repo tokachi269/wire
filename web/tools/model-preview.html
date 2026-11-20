@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<title>model preview</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #1b1f24; color: #d8dee4;
+    font: 12px/1.55 ui-monospace, "Consolas", monospace; }
+  #view { position: fixed; inset: 0; }
+  #panel { position: fixed; top: 0; left: 0; width: 330px; max-height: 100%;
+    overflow: auto; padding: 10px 12px 16px; background: #11151ae8;
+    border-right: 1px solid #2c333b; }
+  #drop { position: fixed; inset: 0; display: none; place-items: center;
+    background: #0d1117cc; font-size: 18px; pointer-events: none; }
+  body.dragging #drop { display: grid; }
+  h2 { font-size: 11px; margin: 12px 0 4px; color: #8fb8dd; letter-spacing: .1em; }
+  h2:first-of-type { margin-top: 0; }
+  .row { display: flex; align-items: center; gap: 5px; padding: 1px 0; }
+  .row > .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    cursor: pointer; }
+  .row.on > .name { color: #ffc24a; }
+  input[type=number] { background: #1b222a; color: #d8dee4; border: 1px solid #333c46;
+    border-radius: 3px; padding: 1px 3px; font: inherit; width: 62px; text-align: right; }
+  input[type=number].narrow { width: 44px; }
+  table { border-collapse: collapse; width: 100%; }
+  td { padding: 1px 0; }
+  td:first-child { color: #7f8c99; }
+  td:last-child { text-align: right; }
+  .warn { color: #e8a33d; }
+  .bad { color: #e8665b; }
+  pre { margin: 4px 0 0; padding: 6px; background: #0d1117; border: 1px solid #2c333b;
+    border-radius: 3px; white-space: pre; overflow-x: auto; font-size: 11px; max-height: 190px; }
+  button { background: #1b222a; color: #d8dee4; border: 1px solid #333c46;
+    border-radius: 3px; padding: 2px 7px; font: inherit; cursor: pointer; }
+  button:hover { background: #242d37; }
+  .hint { color: #67727d; }
+  #err { color: #e8665b; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<div id="drop">GLB / glTF / OBJ をドロップして重ねる</div>
+<div id="panel">
+  <h2>まとまり</h2>
+  <div id="assemblies"></div>
+  <div class="row">
+    <span class="name hint">ワイヤーフレーム</span><input id="wire" type="checkbox" />
+    <span class="name hint">socket</span><input id="showSockets" type="checkbox" checked />
+  </div>
+
+  <h2>選択中 <span id="selectedLabel" class="hint"></span></h2>
+  <div class="row">
+    <span class="name hint">レーン複製 個数 / Y間隔</span>
+    <input id="laneCount" class="narrow" type="number" min="1" step="1" value="1" />
+    <input id="laneSpread" class="narrow" type="number" step="0.01" value="0.45" />
+  </div>
+  <div id="parts"></div>
+
+  <h2>数値</h2>
+  <table id="stats"></table>
+  <div id="err"></div>
+
+  <h2>出力 <button id="copy">コピー</button></h2>
+  <pre id="dump">-</pre>
+</div>
+
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
+import {
+  modelAssetCache,
+  cloneSharedAsset,
+  loadDefaultModelBootstrap,
+  polePrimitive,
+  poleRadiusAtDistanceFromTop
+} from "../src/render/modelAssets";
+
+const SOCKET_NAME = /^(socket_|connect_)/;
+const PROBE_STEPS = 8;
+// Row and endpoint assemblies carry no height of their own: Core places them at
+// the Port. These are the viewer's own default bundle heights, to look at.
+const DEFAULT_HEIGHT_M = { 9202: 9.2, 9203: 9.2, 9204: 5.36, 9206: 7.44, 9207: 7.44 };
+const DEFAULT_ON = [9201, 9202, 9208];
+
+THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
+
+const canvas = document.getElementById("view");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x222830);
+scene.add(new THREE.HemisphereLight(0xdfe9f2, 0x3a4048, 2.0));
+const sun = new THREE.DirectionalLight(0xffffff, 1.5);
+sun.position.set(4, -6, 8);
+scene.add(sun);
+const grid = new THREE.GridHelper(20, 20, 0x4a5560, 0x333c46);
+grid.rotation.x = Math.PI / 2;
+scene.add(grid);
+
+const camera = new THREE.PerspectiveCamera(32, 1, 0.02, 400);
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+
+const stage = new THREE.Group();
+const socketRoot = new THREE.Group();
+const dropped = new THREE.Group();
+scene.add(stage, socketRoot, dropped);
+
+const ui = Object.fromEntries(
+  ["assemblies", "parts", "stats", "dump", "err", "wire", "showSockets",
+   "laneCount", "laneSpread", "selectedLabel", "copy"]
+    .map((id) => [id, document.getElementById(id)])
+);
+
+let bootstrap = null;
+let poleAssemblyIds = new Set();
+// Per-assembly view state, keyed by assembly id. `offsets` holds the nudge the
+// author is trying out on top of what modelAssets.ts already says.
+const view = new Map();
+let selectedId = 0;
+let stats = null;
+
+function state(id) {
+  let entry = view.get(id);
+  if (entry === undefined) {
+    entry = {
+      on: DEFAULT_ON.includes(id),
+      heightM: DEFAULT_HEIGHT_M[id] ?? 0,
+      lanes: 1,
+      spreadM: 0.45,
+      offsets: new Map()
+    };
+    view.set(id, entry);
+  }
+  return entry;
+}
+
+function offset(id, partId) {
+  const entry = state(id);
+  let value = entry.offsets.get(partId);
+  if (value === undefined) {
+    value = { x: 0, y: 0, z: 0 };
+    entry.offsets.set(partId, value);
+  }
+  return value;
+}
+
+function assemblyLabel(assembly) {
+  const keys = [...new Set(assembly.parts.map((part) => part.modelKey))];
+  return `${assembly.id} ${keys.join(" + ")}`;
+}
+
+function disposeGroup(group) {
+  group.traverse((node) => {
+    if (!node.isMesh) return;
+    node.geometry.dispose();
+    for (const material of [node.material].flat()) material?.dispose();
+  });
+  group.clear();
+}
+
+function placePart(part, extra) {
+  const asset = modelAssetCache.loadedModel(part.modelKey);
+  if (asset === null) return null;
+  const holder = new THREE.Group();
+  holder.add(cloneSharedAsset(asset));
+  const t = part.localTransform;
+  const nudge = offset(selectedOwner(part), part.partId);
+  holder.position.set(
+    t.positionX + nudge.x,
+    t.positionY + nudge.y + extra,
+    t.positionZ + nudge.z
+  );
+  holder.rotation.set(
+    THREE.MathUtils.degToRad(t.rotationX),
+    THREE.MathUtils.degToRad(t.rotationY),
+    THREE.MathUtils.degToRad(t.rotationZ),
+    "XYZ"
+  );
+  holder.scale.set(t.scaleX, t.scaleY, t.scaleZ);
+  return holder;
+}
+
+// placePart needs the owning assembly to read its nudge; parts carry no back
+// reference, so the current build pass records it.
+let buildingId = 0;
+function selectedOwner() {
+  return buildingId;
+}
+
+function build() {
+  disposeGroup(stage);
+  disposeGroup(socketRoot);
+  if (bootstrap === null) return;
+  const placed = [];
+  for (const assembly of bootstrap.assemblies) {
+    const entry = state(assembly.id);
+    if (!entry.on) continue;
+    buildingId = assembly.id;
+    const group = new THREE.Group();
+    group.position.z = entry.heightM;
+    group.userData.assemblyId = assembly.id;
+    group.userData.isPole = poleAssemblyIds.has(assembly.id);
+    const lanes = Math.max(1, Math.round(entry.lanes));
+    for (let lane = 0; lane < lanes; lane += 1) {
+      const extra = lanes === 1 ? 0 : (lane - (lanes - 1) / 2) * entry.spreadM;
+      for (const part of assembly.parts) {
+        const holder = placePart(part, extra);
+        if (holder === null) continue;
+        group.add(holder);
+        placed.push({ part, holder });
+      }
+    }
+    stage.add(group);
+  }
+  buildingId = 0;
+  stage.updateMatrixWorld(true);
+  for (const { part, holder } of placed) addSocketGizmos(part, holder);
+  applyWireframe(ui.wire.checked);
+  refresh();
+}
+
+function addSocketGizmos(part, holder) {
+  const point = new THREE.Vector3();
+  for (const socket of part.sockets ?? []) {
+    point.set(socket.positionX, socket.positionY, socket.positionZ).applyMatrix4(holder.matrixWorld);
+    const dot = new THREE.Mesh(
+      new THREE.SphereGeometry(0.013, 8, 6),
+      new THREE.MeshBasicMaterial({ color: 0xffc24a })
+    );
+    dot.position.copy(point);
+    socketRoot.add(dot);
+    const direction = new THREE.Vector3(socket.directionX, socket.directionY, socket.directionZ);
+    if (direction.lengthSq() > 0) {
+      socketRoot.add(new THREE.ArrowHelper(direction.normalize(), point, 0.16, 0xffc24a, 0.05, 0.03));
+    }
+  }
+  holder.traverse((node) => {
+    if (!SOCKET_NAME.test(node.name)) return;
+    node.getWorldPosition(point);
+    const axes = new THREE.AxesHelper(0.08);
+    axes.position.copy(point);
+    socketRoot.add(axes);
+  });
+}
+
+function applyWireframe(on) {
+  for (const root of [stage, dropped]) {
+    root.traverse((node) => {
+      if (!node.isMesh) return;
+      for (const material of [node.material].flat()) if (material) material.wireframe = on;
+    });
+  }
+}
+
+// Edges, not vertices: a crossarm driven through the pole keeps every vertex
+// outside it, and only the bar between them crosses.
+function collectEdges(root) {
+  const out = [];
+  root.updateMatrixWorld(true);
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  root.traverse((node) => {
+    if (!node.isMesh) return;
+    const position = node.geometry.attributes.position;
+    const index = node.geometry.index;
+    const count = index ? index.count : position.count;
+    const at = (i) => (index ? index.getX(i) : i);
+    for (let i = 0; i + 2 < count; i += 3) {
+      for (let e = 0; e < 3; e += 1) {
+        a.fromBufferAttribute(position, at(i + e)).applyMatrix4(node.matrixWorld);
+        b.fromBufferAttribute(position, at(i + ((e + 1) % 3))).applyMatrix4(node.matrixWorld);
+        out.push(a.x, a.y, a.z, b.x, b.y, b.z);
+      }
+    }
+  });
+  return out;
+}
+
+function poleProbe(edges) {
+  let nearest = Infinity;
+  let crossing = 0;
+  for (let i = 0; i < edges.length; i += 6) {
+    let crossed = false;
+    for (let step = 0; step <= PROBE_STEPS; step += 1) {
+      const t = step / PROBE_STEPS;
+      const heightM = edges[i + 2] + (edges[i + 5] - edges[i + 2]) * t;
+      if (heightM < 0 || heightM > polePrimitive.visibleHeightM) continue;
+      const dx = edges[i] + (edges[i + 3] - edges[i]) * t;
+      const dy = edges[i + 1] + (edges[i + 4] - edges[i + 1]) * t;
+      const signed = Math.hypot(dx, dy) -
+        poleRadiusAtDistanceFromTop(polePrimitive.visibleHeightM - heightM);
+      if (signed < nearest) nearest = signed;
+      if (signed < 0) crossed = true;
+    }
+    if (crossed) crossing += 1;
+  }
+  return { nearest, crossing };
+}
+
+function measure(root) {
+  let triangles = 0;
+  let meshes = 0;
+  root.traverse((node) => {
+    if (!node.isMesh) return;
+    meshes += 1;
+    const index = node.geometry.index;
+    triangles += (index ? index.count : node.geometry.attributes.position.count) / 3;
+  });
+  return { triangles, meshes };
+}
+
+function row(label, value, cls) {
+  return "<tr><td>" + label + "</td><td class=\"" + (cls ?? "") + "\">" + value + "</td></tr>";
+}
+
+function refresh() {
+  socketRoot.visible = ui.showSockets.checked;
+  const edges = [];
+  for (const group of stage.children) {
+    if (group.userData.isPole) continue;
+    edges.push(...collectEdges(group));
+  }
+  edges.push(...collectEdges(dropped));
+  const probe = poleProbe(edges);
+  const totals = measure(stage);
+  const extra = measure(dropped);
+  const bounds = fittingBounds();
+  const size = bounds.isEmpty() ? new THREE.Vector3() : bounds.getSize(new THREE.Vector3());
+  const nearClass = probe.crossing > 0 ? "bad" : probe.nearest < 0.005 ? "warn" : "";
+  ui.stats.innerHTML = [
+    row("まとまり", stage.children.length),
+    row("三角形", (totals.triangles + extra.triangles).toLocaleString()),
+    row("mesh node", totals.meshes + extra.meshes),
+    row("全体 X / Y", size.x.toFixed(2) + " / " + size.y.toFixed(2)),
+    row("電柱を貫く辺", probe.crossing, probe.crossing > 0 ? "bad" : ""),
+    row("電柱面まで",
+      Number.isFinite(probe.nearest) ? probe.nearest.toFixed(4) : "-", nearClass)
+  ].join("");
+  renderDump();
+}
+
+function renderDump() {
+  const assembly = bootstrap?.assemblies.find((item) => item.id === selectedId);
+  if (assembly === undefined) {
+    ui.dump.textContent = "-";
+    return;
+  }
+  const entry = state(assembly.id);
+  ui.dump.textContent = assembly.parts.map((part) => {
+    const t = part.localTransform;
+    const nudge = entry.offsets.get(part.partId) ?? { x: 0, y: 0, z: 0 };
+    const value = (base, delta) => (base + delta).toFixed(4);
+    return `part ${part.partId} ${part.modelKey}\n` +
+      `  position ${value(t.positionX, nudge.x)}, ${value(t.positionY, nudge.y)}, ` +
+      `${value(t.positionZ, nudge.z)}\n` +
+      `  rotation ${t.rotationX}, ${t.rotationY}, ${t.rotationZ}\n` +
+      `  scale    ${t.scaleX.toFixed(4)}, ${t.scaleY.toFixed(4)}, ${t.scaleZ.toFixed(4)}`;
+  }).join("\n");
+}
+
+function number(value, step, onInput, narrow) {
+  const input = document.createElement("input");
+  input.type = "number";
+  input.step = String(step);
+  input.value = String(value);
+  if (narrow === true) input.className = "narrow";
+  input.addEventListener("input", () => onInput(Number(input.value) || 0));
+  return input;
+}
+
+function renderAssemblies() {
+  ui.assemblies.replaceChildren();
+  for (const assembly of bootstrap.assemblies) {
+    const entry = state(assembly.id);
+    const line = document.createElement("div");
+    line.className = "row" + (assembly.id === selectedId ? " on" : "");
+    const check = document.createElement("input");
+    check.type = "checkbox";
+    check.checked = entry.on;
+    check.addEventListener("change", () => {
+      entry.on = check.checked;
+      build();
+    });
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = assemblyLabel(assembly);
+    name.title = assemblyLabel(assembly);
+    name.addEventListener("click", () => select(assembly.id));
+    line.append(check, name, number(entry.heightM, 0.05, (value) => {
+      entry.heightM = value;
+      build();
+    }));
+    ui.assemblies.append(line);
+  }
+}
+
+function renderParts() {
+  ui.parts.replaceChildren();
+  const assembly = bootstrap?.assemblies.find((item) => item.id === selectedId);
+  if (assembly === undefined) return;
+  for (const part of assembly.parts) {
+    const nudge = offset(assembly.id, part.partId);
+    const line = document.createElement("div");
+    line.className = "row";
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = part.partId + " " + part.modelKey;
+    name.title = part.modelKey;
+    const axis = (key) => number(nudge[key], 0.005, (value) => {
+      nudge[key] = value;
+      build();
+    }, true);
+    line.append(name, axis("x"), axis("y"), axis("z"));
+    ui.parts.append(line);
+  }
+}
+
+function select(id) {
+  selectedId = id;
+  const entry = state(id);
+  ui.selectedLabel.textContent = String(id);
+  ui.laneCount.value = String(entry.lanes);
+  ui.laneSpread.value = String(entry.spreadM);
+  renderAssemblies();
+  renderParts();
+  renderDump();
+}
+
+// Framing on everything would centre on the pole, which is 10 m of nothing; the
+// fittings are what is being looked at.
+function fittingBounds() {
+  const bounds = new THREE.Box3();
+  for (const group of stage.children) {
+    if (group.userData.isPole) continue;
+    bounds.union(new THREE.Box3().setFromObject(group, true));
+  }
+  bounds.union(new THREE.Box3().setFromObject(dropped, true));
+  return bounds;
+}
+
+function frameStage() {
+  const bounds = fittingBounds();
+  if (bounds.isEmpty()) return;
+  const center = bounds.getCenter(new THREE.Vector3());
+  const radius = Math.max(bounds.getSize(new THREE.Vector3()).length(), 1.2);
+  controls.target.copy(center);
+  camera.position.copy(center).add(new THREE.Vector3(radius, -radius, radius * 0.25));
+  controls.update();
+}
+
+async function loadFile(file) {
+  ui.err.textContent = "";
+  try {
+    let raw;
+    if (file.name.toLowerCase().endsWith(".obj")) {
+      raw = new OBJLoader().parse(await file.text());
+      raw.traverse((node) => {
+        if (!node.isMesh) return;
+        node.material = new THREE.MeshStandardMaterial({
+          color: 0xc9a86a, roughness: 0.6, metalness: 0.2, side: THREE.DoubleSide
+        });
+      });
+    } else {
+      raw = (await new GLTFLoader().parseAsync(await file.arrayBuffer(), "")).scene;
+    }
+    disposeGroup(dropped);
+    const holder = new THREE.Group();
+    holder.rotation.x = Math.PI / 2;
+    holder.add(raw);
+    dropped.add(holder);
+    applyWireframe(ui.wire.checked);
+    refresh();
+  } catch (error) {
+    ui.err.textContent = String(error);
+  }
+}
+
+ui.wire.addEventListener("change", () => applyWireframe(ui.wire.checked));
+ui.showSockets.addEventListener("change", refresh);
+ui.laneCount.addEventListener("input", () => {
+  state(selectedId).lanes = Math.max(1, Math.round(Number(ui.laneCount.value) || 1));
+  build();
+});
+ui.laneSpread.addEventListener("input", () => {
+  state(selectedId).spreadM = Number(ui.laneSpread.value) || 0;
+  build();
+});
+ui.copy.addEventListener("click", () => {
+  void navigator.clipboard?.writeText(ui.dump.textContent ?? "");
+});
+
+addEventListener("dragover", (event) => {
+  event.preventDefault();
+  document.body.classList.add("dragging");
+});
+addEventListener("dragleave", () => document.body.classList.remove("dragging"));
+addEventListener("drop", (event) => {
+  event.preventDefault();
+  document.body.classList.remove("dragging");
+  const file = event.dataTransfer?.files?.[0];
+  if (file !== undefined) void loadFile(file);
+});
+
+function resize() {
+  renderer.setSize(innerWidth, innerHeight, false);
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+}
+addEventListener("resize", resize);
+resize();
+
+(function loop() {
+  requestAnimationFrame(loop);
+  controls.update();
+  renderer.render(scene, camera);
+})();
+
+try {
+  bootstrap = await loadDefaultModelBootstrap();
+  poleAssemblyIds = new Set(bootstrap.poleAssignments.map((item) => item.assemblyId));
+  select(9208);
+  build();
+  frameStage();
+} catch (error) {
+  ui.err.textContent = String(error);
+}
+</script>
+</body>
+</html>

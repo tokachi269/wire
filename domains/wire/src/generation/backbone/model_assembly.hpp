@@ -1,6 +1,7 @@
 #pragma once
 
 #include "city/wire/core_state.hpp"
+#include "city/wire/core_view.hpp"
 
 #include <unordered_map>
 #include <vector>
@@ -27,6 +28,12 @@ struct FixturePlacementPlan {
 };
 
 using FixturePlacementPlanByPort = std::unordered_map<ObjectId, FixturePlacementPlan>;
+
+// Picks the pole decoration assembly this pole wears, or nullptr. Model
+// instances and the drop wires that land on them are built in different
+// translation units, so both have to ask here.
+[[nodiscard]] const ModelAssemblyTemplate* pole_decoration_for(const CoreView& view,
+                                                               const Pole& pole);
 
 [[nodiscard]] double endpoint_down_offset(const EndpointLayoutRule& endpoint);
 

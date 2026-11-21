@@ -1239,6 +1239,47 @@ describe("wire wasm smoke", () => {
     modelState.delete();
   });
 
+  it("spreads two pole decorations across poles and keeps each pole on its own", async () => {
+    const bootstrap = modelBootstrap();
+    const base = bootstrap.assemblies.find((assembly) => assembly.id === 9905)!;
+    // A second variation one metre higher, so a pole's instance and the wires
+    // that end on it can be told apart by height alone.
+    bootstrap.assemblies.push({
+      ...base,
+      id: 9906,
+      parts: base.parts.map((part) => ({
+        ...part,
+        modelKey: "pole_decoration_y",
+        localTransform: { ...part.localTransform, positionZ: part.localTransform.positionZ + 1 }
+      }))
+    });
+
+    const bridge = await WireBridge.create();
+    expect(bridge.configureModelAssemblies(bootstrap).ok).toBe(true);
+    const generated = bridge.generate(
+      SUPPORT_DETAIL_SCENE_POINTS,
+      SUPPORT_DETAIL_SCENE_BUNDLE_TEMPLATE_IDS, 0, 1,
+      SUPPORT_DETAIL_SCENE_COUNTS, 0, 0, []
+    );
+    expect(generated.ok, generated.error).toBe(true);
+
+    const scene = bridge.scene();
+    const decorations = scene.models.filter((model) => model.stableKey.startsWith("pole-decoration:"));
+    expect(decorations.length).toBeGreaterThan(1);
+    expect(new Set(decorations.map((model) => model.modelKey)))
+      .toEqual(new Set(["pole_decoration_x", "pole_decoration_y"]));
+
+    const endHeights = scene.parts
+      .filter((part) =>
+        part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable
+      )
+      .map((part) => Number(part.samples[part.samples.length - 1].toFixed(3)));
+    expect(endHeights.length).toBeGreaterThan(0);
+    // The wires are built in another translation unit. If it still picked one
+    // assembly for every pole, no wire would end a metre above another.
+    expect(endHeights.some((z) => endHeights.includes(Number((z + 1).toFixed(3))))).toBe(true);
+  });
+
   it("derives pole decoration model and local curves in the core visual output", async () => {
     const rawState = createState();
     expect(rawState.configureModelAssemblies(modelBootstrap()).ok).toBe(true);

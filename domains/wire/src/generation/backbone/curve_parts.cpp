@@ -6,6 +6,7 @@
 
 #include "../../support/hash_mix.hpp"
 #include "out.hpp"
+#include "model_assembly.hpp"
 #include "mount_graph.hpp"
 #include "row_representation.hpp"
 #include "span_visual_assembly.hpp"
@@ -197,31 +198,7 @@ std::vector<decoration_socket_ref> decoration_sockets(const ModelAssemblyTemplat
   return out;
 }
 
-const ModelAssemblyTemplate* first_pole_decoration_candidate(const CoreView& view) {
-  const ModelAssemblyTemplate* best = nullptr;
-  for (const auto& [id, assembly] : view.model_assembly_templates()) {
-    static_cast<void>(id);
-    bool has_connect_socket = false;
-    for (const ModelAssemblyPart& part : assembly.parts) {
-      for (const ModelAssemblySocket& socket : part.sockets) {
-        if (is_connect_socket_name(socket.name)) {
-          has_connect_socket = true;
-          break;
-        }
-      }
-      if (has_connect_socket) {
-        break;
-      }
-    }
-    if (!has_connect_socket) {
-      continue;
-    }
-    if (best == nullptr || assembly.id < best->id) {
-      best = &assembly;
-    }
-  }
-  return best;
-}
+
 
 CableRunId run_id_from_canonical_section(const CableSectionKey& key) {
   std::uint64_t hash = hash_combine(0, static_cast<std::uint64_t>(key.edge_bundle_id));
@@ -737,7 +714,6 @@ std::vector<Vec3d> local_decoration_samples(const Vec3d& target,
 void append_pole_decoration_curves_for_node(const CoreState& state,
                                             ObjectId node_id,
                                             const std::vector<curve_endpoint_ref>& endpoints,
-                                            const ModelAssemblyTemplate& assembly,
                                             VisualCurvePartCache* out) {
   if (out == nullptr) {
     return;
@@ -746,6 +722,12 @@ void append_pole_decoration_curves_for_node(const CoreState& state,
   if (pole == nullptr) {
     return;
   }
+  const ModelAssemblyTemplate* decoration = pole_decoration_for(state.view(), *pole);
+  if (decoration == nullptr) {
+    return;
+  }
+  const ModelAssemblyTemplate& assembly = *decoration;
+
   const PoleFrame frame = BuildPoleFrame(pole->world_transform, pole->world_transform.rotation_euler_deg.z);
   const std::vector<decoration_socket_ref> sockets = decoration_sockets(assembly);
   if (sockets.empty()) {
@@ -823,10 +805,6 @@ void append_pole_decoration_curves(const CoreState& state,
                                    const std::vector<curve_endpoint_ref>& endpoints,
                                    const std::unordered_set<ObjectId>& scoped_nodes,
                                    VisualCurvePartCache* out) {
-  const ModelAssemblyTemplate* assembly = first_pole_decoration_candidate(state.view());
-  if (assembly == nullptr) {
-    return;
-  }
   std::unordered_set<ObjectId> node_ids{};
   for (const curve_endpoint_ref& endpoint : endpoints) {
     if (endpoint.node_id == kInvalidObjectId) {
@@ -840,7 +818,7 @@ void append_pole_decoration_curves(const CoreState& state,
   std::vector<ObjectId> ordered_nodes(node_ids.begin(), node_ids.end());
   std::sort(ordered_nodes.begin(), ordered_nodes.end());
   for (ObjectId node_id : ordered_nodes) {
-    append_pole_decoration_curves_for_node(state, node_id, endpoints, *assembly, out);
+    append_pole_decoration_curves_for_node(state, node_id, endpoints, out);
   }
 }
 

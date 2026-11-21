@@ -6,6 +6,7 @@
 #include "row_representation.hpp"
 #include "route_support.hpp"
 
+#include "../../support/hash_mix.hpp"
 #include "../../support/instrumentation.hpp"
 
 #include "city/wire/coord_utils.hpp"
@@ -206,20 +207,6 @@ bool is_pole_decoration_candidate(const ModelAssemblyTemplate& assembly) {
     }
   }
   return false;
-}
-
-const ModelAssemblyTemplate* first_pole_decoration_candidate(const CoreView& view) {
-  const ModelAssemblyTemplate* best = nullptr;
-  for (const auto& [id, assembly] : view.model_assembly_templates()) {
-    static_cast<void>(id);
-    if (!is_pole_decoration_candidate(assembly)) {
-      continue;
-    }
-    if (best == nullptr || assembly.id < best->id) {
-      best = &assembly;
-    }
-  }
-  return best;
 }
 
 std::vector<ConnectionCategory> connect_socket_categories(const ModelAssemblyTemplate& assembly) {
@@ -642,6 +629,30 @@ EditResult<RowFixturePlacementPlan> row_fixture_placement_plan(
 
 } // namespace
 
+// Picks one pole decoration for this pole. Model instances and the drop wires
+// that land on them are built in different translation units, so both ask here:
+// a pole must not get wires from an assembly it is not wearing.
+const ModelAssemblyTemplate* pole_decoration_for(const CoreView& view, const Pole& pole) {
+  std::vector<const ModelAssemblyTemplate*> usable{};
+  for (const auto& [id, assembly] : view.model_assembly_templates()) {
+    static_cast<void>(id);
+    if (is_pole_decoration_candidate(assembly) &&
+        pole_has_decoration_target(view, pole, assembly)) {
+      usable.push_back(&assembly);
+    }
+  }
+  if (usable.empty()) {
+    return nullptr;
+  }
+  std::sort(usable.begin(), usable.end(),
+            [](const ModelAssemblyTemplate* a, const ModelAssemblyTemplate* b) {
+              return a->id < b->id;
+            });
+  const std::uint64_t pick =
+      support::hash_combine(0x706f6c65ull, static_cast<std::uint64_t>(pole.id));
+  return usable[pick % usable.size()];
+}
+
 namespace {
 
 EditResult<ResolvedEndpointPlacement> resolve_endpoint_placement(
@@ -964,19 +975,17 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(
     }
   }
 
-  if (const ModelAssemblyTemplate* decoration = first_pole_decoration_candidate(view);
-      decoration != nullptr) {
-    for (const Pole& pole : view.poles().items()) {
-      if (!pole_has_decoration_target(view, pole, *decoration)) {
-        continue;
-      }
-      std::string error{};
-      append_instances(state, pole, 0.0, *decoration, pole.world_transform, {},
-                       "pole-decoration:" + std::to_string(pole.id), &out.value, &error);
-      if (!error.empty()) {
-        out.error = std::move(error);
-        return out;
-      }
+  for (const Pole& pole : view.poles().items()) {
+    const ModelAssemblyTemplate* decoration = pole_decoration_for(view, pole);
+    if (decoration == nullptr) {
+      continue;
+    }
+    std::string error{};
+    append_instances(state, pole, 0.0, *decoration, pole.world_transform, {},
+                     "pole-decoration:" + std::to_string(pole.id), &out.value, &error);
+    if (!error.empty()) {
+      out.error = std::move(error);
+      return out;
     }
   }
 

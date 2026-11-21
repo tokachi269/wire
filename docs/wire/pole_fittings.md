@@ -30,6 +30,8 @@
 ## socket
 
 - 線をつなげるところにemptyを置く。位置だけでなく向きも正しく設定する。
+- GLBのemptyが正本。loaderが読むので、コード側に座標を書かない。
+- emptyのローカル+Xが線の出ていく向き。
 - 名前が接続先を決める。`connect_hv_<n>`、`connect_lv_<n>`、`connect_comm_<n>`、`connect_optical_<n>`の`<n>`は、そのcategoryで何番目のレーンに繋ぐかを指す。
 - socketを持つpartのfit modeは`kRigid`でなければならない。
 - socketを1つでも持つと、そのcategoryの線が来ている電柱すべてにそのassemblyが載る。

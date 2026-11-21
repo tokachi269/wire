@@ -79,7 +79,7 @@ const glb = await new GLTFExporter().parseAsync(scene, { binary: true, onlyVisib
 await fs.writeFile(process.argv[2], Buffer.from(glb));
 
 const sockets = [];
-model.traverse((o) => { if (o.name.startsWith('socket_')) sockets.push([o.name, o.position.toArray()]); });
+model.traverse((o) => { if (/^(socket_|connect_)/.test(o.name)) sockets.push([o.name, o.position.toArray()]); });
 console.log(JSON.stringify({
   triangles: triangleCount(model),
   groups: model.children.map((g) => [g.name, triangleCount(g)]),

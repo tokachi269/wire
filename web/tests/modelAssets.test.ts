@@ -1,5 +1,9 @@
+import fs from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it, vi } from "vitest";
 import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import {
   buildDefaultModelBootstrap,
   cloneSharedAsset,
@@ -173,5 +177,56 @@ describe("model asset cache", () => {
     expect(lowVoltage.parts[0].sockets[0].positionY).toBeCloseTo(0, 12);
     expect(lowVoltage.parts[0].sockets[0].positionZ).toBeCloseTo(0, 12);
     expect(lowVoltage.wireSocket).toEqual({ partId: 1, socketName: "wire" });
+  });
+  it("reads the transformer's wire sockets out of the shipped GLB", async () => {
+    const path = fileURLToPath(new URL("../src/assets/pole_transformer_m_01.glb", import.meta.url));
+    const bytes = await fs.readFile(path);
+    const data = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    const cache = new ModelAssetCache(async (url) => {
+      if (!url.endsWith("pole_transformer_m_01.glb")) {
+        const source = new THREE.Group();
+        source.add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.2, 0.4), new THREE.MeshStandardMaterial()));
+        return source;
+      }
+      return (await new GLTFLoader().parseAsync(data, "")).scene as unknown as THREE.Group;
+    });
+    const [pole, crossarm, belt, insulator, clamp, clampLong, transformer] = await Promise.all([
+      cache.load("poleBody"),
+      cache.load("crossarmHv"),
+      cache.load("belt"),
+      cache.load("hvInsulator"),
+      cache.load("communicationClamp"),
+      cache.load("communicationClampLong"),
+      cache.load("poleTransformerM01")
+    ]);
+
+    // Y-up (x, y, z) becomes Core-local (x, -z, y), and a marker's local +X is
+    // the direction the wire leaves. Hard numbers because the GLB is the only
+    // place these live: a lost marker has to fail here, not render wrong.
+    expect(transformer.sockets.map((socket) => socket.name)).toEqual([
+      "connect_hv_0", "connect_hv_1", "connect_lv_0", "connect_lv_1", "connect_lv_2"
+    ]);
+    const [hv0, , lv0] = transformer.sockets;
+    expect(hv0.positionX).toBeCloseTo(-0.2, 6);
+    expect(hv0.positionY).toBeCloseTo(-0.125, 6);
+    expect(hv0.positionZ).toBeCloseTo(0.655, 6);
+    expect(hv0.directionX).toBeCloseTo(-0.330350, 5);
+    expect(hv0.directionZ).toBeCloseTo(0.943858, 5);
+    expect(lv0.positionX).toBeCloseTo(-0.1, 6);
+    expect(lv0.positionY).toBeCloseTo(-0.1, 6);
+    expect(lv0.positionZ).toBeCloseTo(0, 6);
+    expect(lv0.directionY).toBeCloseTo(-0.242536, 5);
+    expect(lv0.directionZ).toBeCloseTo(-0.970143, 5);
+    // mountRule "origin" keeps the authored datum, so Core sees these unshifted.
+    expect(transformer.mountAnchor.length()).toBeCloseTo(0, 12);
+
+    const bootstrap = buildDefaultModelBootstrap(
+      pole, crossarm, belt, insulator, clamp, clampLong, transformer
+    );
+    const assembly = bootstrap.assemblies.find((entry) => entry.id === 9208)!;
+    const tank = assembly.parts.find((part) => part.modelKey === transformer.modelKey)!;
+    expect(tank.sockets).toEqual(transformer.sockets);
+    // curve_parts.cpp drops a socket whose part is not kRigid.
+    expect(tank.fitMode).toBe(0);
   });
 });

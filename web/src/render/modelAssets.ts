@@ -72,6 +72,7 @@ export interface LoadedModelAsset {
   mountAnchor: THREE.Vector3;
   radialReferenceM: number | null;
   radialTopM: number | null;
+  sockets: ModelSocketInput[];
   descriptorVersion: number;
   adapter: ModelAssetAdapter;
 }
@@ -146,7 +147,7 @@ export const modelAssetAdapters: Record<ModelAssetKind, ModelAssetAdapter> = {
     // The strap loops are authored around the pole axis, so the authored origin
     // is the mount datum; a bounds-derived anchor would move the tank off it.
     mountRule: "origin",
-    adapterVersion: 1
+    adapterVersion: 2
   },
   nonHvSupportRowProxy: {
     modelKey: "non_hv_support_row_proxy",
@@ -218,12 +219,36 @@ function mountAnchor(bounds: THREE.Box3, size: THREE.Vector3, rule: MountRule): 
   return new THREE.Vector3(0, bounds.min.y + size.y * buriedRatio, 0);
 }
 
+// The authored marker's local +X is the direction the wire leaves, as
+// tools/models/pole_transformer_m_01.ts writes it.
+function extractSockets(source: THREE.Group): ModelSocketInput[] {
+  const out: ModelSocketInput[] = [];
+  source.updateMatrixWorld(true);
+  const rotation = new THREE.Matrix4();
+  const position = new THREE.Vector3();
+  const direction = new THREE.Vector3();
+  // source is unparented here, so its matrixWorld is the part-local frame: the
+  // marker's matrixWorld already carries the Y-up to Z-up turn source applies.
+  source.traverse((node) => {
+    if (!node.name.startsWith("connect_")) return;
+    position.setFromMatrixPosition(node.matrixWorld);
+    direction.set(1, 0, 0).applyMatrix4(rotation.extractRotation(node.matrixWorld)).normalize();
+    out.push({
+      name: node.name,
+      positionX: position.x, positionY: position.y, positionZ: position.z,
+      directionX: direction.x, directionY: direction.y, directionZ: direction.z
+    });
+  });
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 function descriptorVersion(
   kind: ModelAssetKind,
   bounds: THREE.Box3,
   anchor: THREE.Vector3,
   radialReferenceM: number | null,
   radialTopM: number | null,
+  sockets: ModelSocketInput[],
   adapter: ModelAssetAdapter
 ): number {
   let hash = 2166136261;
@@ -240,6 +265,13 @@ function descriptorVersion(
     anchor.y,
     anchor.z
   ];
+  for (const socket of sockets) {
+    versionParts.push(
+      socket.name,
+      socket.positionX, socket.positionY, socket.positionZ,
+      socket.directionX, socket.directionY, socket.directionZ
+    );
+  }
   if (radialReferenceM !== null) versionParts.push(radialReferenceM);
   if (radialTopM !== null) versionParts.push(radialTopM);
   if (adapter.visibleLengthM !== undefined) versionParts.push(adapter.visibleLengthM);
@@ -400,7 +432,8 @@ export class ModelAssetCache {
       mountAnchor: anchor,
       radialReferenceM: null,
       radialTopM: null,
-      descriptorVersion: descriptorVersion(kind, bounds, anchor, null, null, adapter),
+      sockets: [],
+      descriptorVersion: descriptorVersion(kind, bounds, anchor, null, null, [], adapter),
       adapter
     };
     this.loaded.set(kind, asset);
@@ -429,6 +462,7 @@ export class ModelAssetCache {
       source.rotation.x = Math.PI / 2;
       source.add(rawSource);
       source.updateMatrixWorld(true);
+      const sockets = extractSockets(source);
 
       const asset: LoadedModelAsset = {
         kind,
@@ -439,8 +473,9 @@ export class ModelAssetCache {
         mountAnchor: anchor,
         radialReferenceM,
         radialTopM,
+        sockets,
         descriptorVersion: descriptorVersion(
-          kind, bounds, anchor, radialReferenceM, radialTopM, adapter
+          kind, bounds, anchor, radialReferenceM, radialTopM, sockets, adapter
         ),
         adapter
       };
@@ -618,35 +653,6 @@ export function buildDefaultModelBootstrap(
     transformerArmCenterXM + transformerArmLengthM * 0.5 - 0.09;
   transformerArmInsulatorTransform.positionY = -transformerArmOffsetYM;
   transformerArmInsulatorTransform.positionZ = TRANSFORMER_MOUNT_HEIGHT_M;
-  // Positions are the asset's own sockets and tank underside, converted from
-  // glTF Y-up to the Core-local Z-up frame the loader normalizes parts into.
-  const transformerSockets: ModelSocketInput[] = [
-    {
-      name: "connect_hv_0",
-      positionX: -0.20, positionY: -0.125, positionZ: 0.655,
-      directionX: -0.35, directionY: 0, directionZ: 1
-    },
-    {
-      name: "connect_hv_1",
-      positionX: 0.225, positionY: -0.125, positionZ: 0.602,
-      directionX: 0.35, directionY: 0, directionZ: 1
-    },
-    {
-      name: "connect_lv_0",
-      positionX: -0.10, positionY: -0.10, positionZ: 0,
-      directionX: 0, directionY: -0.25, directionZ: -1
-    },
-    {
-      name: "connect_lv_1",
-      positionX: 0, positionY: -0.10, positionZ: 0,
-      directionX: 0, directionY: -0.25, directionZ: -1
-    },
-    {
-      name: "connect_lv_2",
-      positionX: 0.10, positionY: -0.10, positionZ: 0,
-      directionX: 0, directionY: -0.25, directionZ: -1
-    }
-  ];
 
   const poleAssemblyId = 9201;
   const hvRowAssemblyId = 9202;
@@ -716,9 +722,9 @@ export function buildDefaultModelBootstrap(
       },
       {
         id: poleTransformerAssemblyId,
-        version: 4,
+        version: 5,
         parts: [
-          part(transformer, 1, 0, transformerTransform, transformerSockets),
+          part(transformer, 1, 0, transformerTransform, transformer.sockets),
           part(crossarm, 2, 0, transformerArmTransform(-1)),
           part(crossarm, 3, 0, transformerArmTransform(1)),
           part(insulator, 4, 0, transformerArmInsulatorTransform)

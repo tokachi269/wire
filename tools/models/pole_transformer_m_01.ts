@@ -269,8 +269,18 @@ export function createTransformerM01(options: TransformerOptions = {}): THREE.Gr
   const sockets = new THREE.Group();
   sockets.name = 'sockets_body';
   body.add(sockets);
-  sockets.add(socket('socket_hood_0', new THREE.Vector3(-0.2, 0.655, 0.125), new THREE.Vector3(0, -1, 0), new THREE.Vector3(-1, 0, 0)));
-  sockets.add(socket('socket_hood_1', new THREE.Vector3(0.225, 0.602, 0.125), new THREE.Vector3(0, -1, 0), new THREE.Vector3(1, 0, 0)));
+  // The name is the contract: docs/wire/pole_fittings.md gives connect_<category>_<lane>
+  // to Core, which runs the drop wire from the lane's insulator to this point.
+  sockets.add(socket('connect_hv_0', new THREE.Vector3(-0.2, 0.655, 0.125), new THREE.Vector3(-0.35, 1, 0), new THREE.Vector3(-1, 0, 0)));
+  sockets.add(socket('connect_hv_1', new THREE.Vector3(0.225, 0.602, 0.125), new THREE.Vector3(0.35, 1, 0), new THREE.Vector3(1, 0, 0)));
+  for (let lane = 0; lane < 3; lane++) {
+    sockets.add(socket(
+      `connect_lv_${lane}`,
+      new THREE.Vector3((lane - 1) * 0.1, 0, 0.1),
+      new THREE.Vector3(0, -1, 0.25),
+      new THREE.Vector3(1, 0, 0)
+    ));
+  }
 
   // ---------------- mount (pole dependent) ----------------
   const poleR = (y: number) => pole.radius + pole.taperPerM * y;

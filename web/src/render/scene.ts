@@ -35,7 +35,6 @@ const POLE_TAPER_RATIO = 75;
 export const POLE_RENDER_SIDES = 16;
 export const WIRE_RADIAL_SEGMENTS = 3;
 const BACKBONE_DISPLAY_PLANE_Z = 0.0;
-const LOCAL_DECORATION_SUPPLEMENTAL_KIND = 3;
 const HIDDEN_SUPPORT_DETAIL_MODEL_KEYS = new Set([
   "pole_transformer_20kva_proxy",
   "transformer_intermediate_insulator_proxy",
@@ -1556,7 +1555,6 @@ export class WireScene {
     let visiblePartCount = 0;
     const nextPartKeys = new Set<string>();
     for (const part of snapshot.parts) {
-      if (part.info.supplementalKind === LOCAL_DECORATION_SUPPLEMENTAL_KIND) continue;
       visiblePartCount += 1;
       const key = part.info.partKey;
       nextPartKeys.add(key);

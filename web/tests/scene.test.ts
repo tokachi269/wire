@@ -708,7 +708,13 @@ describe("scene model reuse", () => {
     (modelAssetCache as any).loaded.delete("poleBody");
   });
 
-  it("keeps unfinished pole decorations out of viewer content", () => {
+  it("draws pole decoration drop wires and keeps the retired proxies out", () => {
+    const patternSpy = vi.spyOn(wirePatternAssetCache, "asset").mockReturnValue({
+      points: [0, 1, 2, 3, 4].map((x) => new THREE.Vector3(x, 0, 0)),
+      minX: 0,
+      maxX: 4,
+      sourceLength: 4
+    });
     const scene = Object.create(WireScene.prototype) as any;
     scene.content = new THREE.Group();
     scene.partMeshes = new Map();
@@ -754,15 +760,16 @@ describe("scene model reuse", () => {
       scaleZ: 0.8
     }];
 
-    expect(scene.syncContent(snapshot)).toBe(false);
+    expect(scene.syncContent(snapshot)).toBe(true);
+    expect(scene.partMeshes.size).toBe(1);
+    expect(scene.content.children).toHaveLength(1);
     expect(scene.pendingModelKeys.size).toBe(0);
-    expect(scene.partMeshes.size).toBe(0);
     expect(scene.modelObjects.size).toBe(0);
     expect(scene.modelBatches.size).toBe(0);
-    expect(scene.content.children).toHaveLength(0);
     expect(scene.contentSyncStats).toEqual({
-      total: 0, reused: 0, rebuilt: 0, removed: 0,
+      total: 1, reused: 0, rebuilt: 1, removed: 0,
       modelTotal: 0, modelReused: 0, modelUpdated: 0, modelRebuilt: 0, modelRemoved: 0
     });
+    patternSpy.mockRestore();
   });
 });

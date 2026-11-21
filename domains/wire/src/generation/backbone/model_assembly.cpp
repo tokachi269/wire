@@ -657,9 +657,10 @@ PoleDecorationPlacement pole_decoration_for(const CoreView& view, const Pole& po
     PoleDecorationPlacement placement{};
     placement.assembly = &assembly;
     placement.root = pole.world_transform;
-    // A quarter off the row: fittings are authored with +X away from the pole
-    // (pole_fittings.md), and the row frame's +X runs along the wires.
-    placement.root.rotation_euler_deg.z = *yaw_deg - 90.0;
+    // Turn around the physical pole axis, preserving its tilt. Replacing only
+    // Euler Z would also turn the tilt direction and move the mounting datum.
+    const PoleFrame frame = BuildPoleFrame(pole.world_transform, *yaw_deg - 90.0);
+    placement.root.rotation_euler_deg = transform_from_frame(frame, frame.origin).rotation_euler_deg;
     usable.push_back(placement);
   }
   if (usable.empty()) {

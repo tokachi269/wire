@@ -67,6 +67,8 @@ kindで探すAPIはgrouping/filterとして複数idを返し、`BundleKind`か�
 
 ## 変圧器のバンド
 
+以下は現行M01の制作・登録経路を記す。Blenderを制作正本に移す方針と未実装範囲は`pole_fittings.md`を参照する。
+
 beltは円環1つなので配置高さの`pole_radius_at_height_m`へradial scaleできる。変圧器のバンドは電柱とタンクの両方を1周する閉ループであり、2つの円の共通接線で形が決まるため、単一transformでは電柱径に追従しない。したがってバンドは焼き込みとし、fit modeは`kRigid`に限定する。
 
 - 生成元は`tools/models/pole_transformer_m_01.ts`、焼き込みは`tools/models/export_pole_transformer.mjs`が行う。
@@ -161,6 +163,8 @@ up      = RotateEulerXYZDeg(WorldUp, rotation_euler_deg)
 `WorldForward`はlocal X、`WorldLateral`はlocal Y、`WorldUp`はlocal Zの基準軸である。Port、row fixture、endpoint fixture、belt fitはこの`BuildPoleFrame`の`forward/lateral/up`を読む。
 
 adapter/viewer側でEuler順やlayout yaw合成を再解釈しない。
+
+柱上機材も`BuildPoleFrame`からroot姿勢を作る。取付方向の変更では、電柱の物理的な`up`を保ち、その軸まわりにまとまり全体を回す。電柱のEuler Zだけをrowのyawへ置き換えると、傾きの方位まで変わり、取付基準が電柱軸から離れる。部品の相対配置と外部socketは、同じrootから変換する。
 
 同じ派生rowに属するPort位置、row fixture、endpoint fixture、wire socket、curve endpointは、同じ`layout_yaw_deg`から作った`PoleFrame`を使用する。pair promotionでrow frameが変わる場合はPort識別情報を維持したまま位置を再導出し、binding yawとPort位置を一つのexact frame更新として適用する。
 

@@ -11,6 +11,16 @@ merge前のゲートは[merge_readiness.md](merge_readiness.md)にある。こ�
 
 ## 残blocker
 
+### 柱上機材の制作移行
+
+制作方針の正本は[wire/pole_fittings.md](wire/pole_fittings.md)。現行M01の固定支持腕と碍子はまだTypeScriptの相対配置であり、Blenderを正本とした往復編集は未実装である。次段階は1つのblend内のCollectionとROOTから1パターンを出力し、部品移動・再出力・外部socketの追従を既存viewerで確認すること。固定配線のLINES読込と、共有Meshを持つ2パターンの編集・実行時選択は、その後の独立した段階として残る。
+
+固定部品と可変rowの一般的な衝突回避は今回のroot回転修正では保証しない。タンク、支持腕、固定配線の造形は、往復編集が通った後にBlenderで調整する。part補正値や機材専用のCore分岐で補わない。
+
+外部socketの番号について、制作規約はcategory内のレーン番号と説明するが、現行Coreはcategory内の端点列をlane・edge Bundle・Spanの順で並べて参照する。曲がり角では同じlaneの両脚が並ぶため、この説明との差を別途確認する。今回の修正は番号の解釈を変えず、実際に選択されたsocketへの位置追従を検証する。
+
+### その他のblocker
+
 | ID | 操作 | 現状 | 解除条件 |
 |---|---|---|---|
 | R2 | `ResolveBranchPick`のpure化 | `ResolveBranchPick`は現在、viewerのdraw bridgeから次の生成処理へ渡すpending support nodeも作成する。副作用のない照会APIへ分離するには、bridgeの受け渡し契約を変更する必要がある | `ResolveBranchPick`は解決結果だけを返し、pending support nodeの作成・消費は別の確定操作へ移す。web bridgeとclear/cancel lifecycleを同時に更新し、既存のpending lifecycleテストを通す |

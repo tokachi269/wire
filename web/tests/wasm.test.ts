@@ -1601,11 +1601,17 @@ describe("wire wasm smoke", () => {
     flat.delete();
   });
 
-  it("inherits pole tilt for derived support detail attachments", async () => {
+  it.each([
+    ["straight", [0, 0, 0, 12, 0, 0]],
+    ["corner", Array.from(SUPPORT_DETAIL_SCENE_POINTS)],
+    ["reverse", [12, 0, 0, 0, 0, 0]]
+  ])("keeps decoration datums and sockets on the tilted pole axis: %s", async (_name, points) => {
     const bridge = await WireBridge.create();
-    expect(bridge.configureModelAssemblies(modelBootstrap()).ok).toBe(true);
+    const bootstrap = modelBootstrap();
+    const assembly = bootstrap.assemblies.find((entry) => entry.id === 9905)!;
+    expect(bridge.configureModelAssemblies(bootstrap).ok).toBe(true);
     const generated = bridge.generate(
-      SUPPORT_DETAIL_SCENE_POINTS,
+      new Float64Array(points),
       SUPPORT_DETAIL_SCENE_BUNDLE_TEMPLATE_IDS, 0, 1,
       SUPPORT_DETAIL_SCENE_COUNTS, 0, 0, []
     );
@@ -1616,16 +1622,51 @@ describe("wire wasm smoke", () => {
     expect(tilted.ok, tilted.error).toBe(true);
 
     const scene = bridge.scene();
-    const decoration = scene.models.find((model) =>
+    const decorations = scene.models.filter((model) =>
       model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[0]
     );
-    expect(decoration).toBeDefined();
-    const poleId = decoration!.stableKey.match(/^pole-decoration:(\d+):/)?.[1];
-    const owner = scene.poles.find((pole) => pole.id === poleId);
-    expect(owner).toBeDefined();
-    expect(Math.abs(owner!.rotationX) + Math.abs(owner!.rotationY)).toBeGreaterThan(0.01);
-    expect(decoration!.rotationX).toBeCloseTo(owner!.rotationX, 6);
-    expect(decoration!.rotationY).toBeCloseTo(owner!.rotationY, 6);
+    expect(decorations).toHaveLength(scene.poles.length);
+    const local = assembly.parts[0].localTransform;
+    for (const decoration of decorations) {
+      const poleId = decoration.stableKey.split(":")[1];
+      const owner = scene.poles.find((pole) => pole.id === poleId)!;
+      const rotation = (model: { rotationX: number; rotationY: number; rotationZ: number }) => new THREE.Euler(
+        ...[model.rotationX, model.rotationY, model.rotationZ].map(THREE.MathUtils.degToRad) as [number, number, number],
+        "ZYX"
+      );
+      const poleUp = new THREE.Vector3(0, 0, 1).applyEuler(rotation(owner));
+      const modelRotation = rotation(decoration);
+      expect(new THREE.Vector3(0, 0, 1).applyEuler(modelRotation).distanceTo(poleUp),
+        `pole ${poleId}: decoration changed the physical pole axis`).toBeLessThan(1e-9);
+
+      // The point opposite the part's horizontal offset is the authored pole
+      // axis datum. Turning the assembly must leave that datum on the pole.
+      const datum = new THREE.Vector3(-local.positionX, -local.positionY, 0)
+        .applyEuler(modelRotation)
+        .add(new THREE.Vector3(decoration.positionX, decoration.positionY, decoration.positionZ));
+      const expected = new THREE.Vector3(owner.positionX, owner.positionY, owner.positionZ)
+        .addScaledVector(poleUp, local.positionZ);
+      expect(datum.distanceTo(expected), `pole ${poleId}: mount datum left the pole axis`).toBeLessThan(1e-9);
+
+      const nodeId = scene.supportNodes.find((node) => node.poleId === poleId)!.id;
+      const cables = scene.parts.filter((part) => part.info.sourceNodeId === nodeId &&
+        part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable);
+      expect(cables.length).toBeGreaterThan(0);
+      for (const cable of cables) {
+        // The section identity carries the assembly and socket ordinal. A
+        // corner can have two edge endpoints with the same carrier lane index.
+        const section = cable.info.partKey.split(":s:")[1].split(":");
+        expect(Number(section[2])).toBe(assembly.id);
+        const socket = assembly.parts[0].sockets[Number(section[3]) - 1];
+        expect(socket).toBeDefined();
+        const endpoint = new THREE.Vector3(socket.positionX, socket.positionY, socket.positionZ)
+          .applyEuler(modelRotation)
+          .add(new THREE.Vector3(decoration.positionX, decoration.positionY, decoration.positionZ));
+        const last = new THREE.Vector3().fromArray(cable.samples, cable.samples.length - 3);
+        expect(last.distanceTo(endpoint), `pole ${poleId}: cable missed its rendered socket`).toBeLessThan(1e-9);
+      }
+    }
+    bridge.dispose();
   });
 
   it("exposes a shared run id for through edge bodies", () => {

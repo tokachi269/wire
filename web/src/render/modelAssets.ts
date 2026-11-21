@@ -557,6 +557,15 @@ export function buildDefaultModelBootstrap(
   beltTransform.scaleY = 1 / beltInnerRadius;
   const crossarmTransform = identityTransform();
   crossarmTransform.rotationZ = 90;
+  // Assembly-local +X runs along the wires and +Y across them, so a set
+  // authored with +X away from the pole has to turn a quarter to hang on the
+  // side the lines are attached to, the way the crossarm already does.
+  const turnOntoLineSide = (transform: ModelTransformInput): ModelTransformInput => ({
+    ...transform,
+    positionX: transform.positionY,
+    positionY: -transform.positionX,
+    rotationZ: transform.rotationZ - 90
+  });
   const endpointMountSocket: ModelSocketInput = {
     name: "endpoint_mount",
     positionX: 0,
@@ -670,10 +679,10 @@ export function buildDefaultModelBootstrap(
       {
         id: poleTransformerAssemblyId,
         parts: [
-          part(transformer, 1, 0, transformerTransform, transformer.sockets),
-          part(crossarm, 2, 0, transformerArmTransform(-1)),
-          part(crossarm, 3, 0, transformerArmTransform(1)),
-          part(insulator, 4, 0, transformerArmInsulatorTransform)
+          part(transformer, 1, 0, turnOntoLineSide(transformerTransform), transformer.sockets),
+          part(crossarm, 2, 0, turnOntoLineSide(transformerArmTransform(-1))),
+          part(crossarm, 3, 0, turnOntoLineSide(transformerArmTransform(1))),
+          part(insulator, 4, 0, turnOntoLineSide(transformerArmInsulatorTransform))
         ],
         wireSocket: null
       }

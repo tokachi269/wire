@@ -1275,6 +1275,43 @@ describe("wire wasm smoke", () => {
     expect(endHeights.some((z) => endHeights.includes(Number((z + 1).toFixed(3))))).toBe(true);
   });
 
+  it("turns the pole decoration to the same yaw as the row fittings on that pole", async () => {
+    const bridge = await WireBridge.create();
+    expect(bridge.configureModelAssemblies(modelBootstrap()).ok).toBe(true);
+    const generated = bridge.generate(
+      SUPPORT_DETAIL_SCENE_POINTS,
+      SUPPORT_DETAIL_SCENE_BUNDLE_TEMPLATE_IDS, 0, 1,
+      SUPPORT_DETAIL_SCENE_COUNTS, 0, 0, []
+    );
+    expect(generated.ok, generated.error).toBe(true);
+
+    const models = bridge.scene().models;
+    const poleOf = (stableKey: string) => stableKey.split(":")[1];
+    const rowYaws = new Map<string, number[]>();
+    const poleYaws = new Map<string, number>();
+    for (const model of models) {
+      if (model.stableKey.startsWith("row:")) {
+        const yaws = rowYaws.get(poleOf(model.stableKey)) ?? [];
+        yaws.push(model.rotationZ);
+        rowYaws.set(poleOf(model.stableKey), yaws);
+      } else if (model.stableKey.startsWith("pole:")) {
+        poleYaws.set(poleOf(model.stableKey), model.rotationZ);
+      }
+    }
+    const decorations = models.filter((model) => model.stableKey.startsWith("pole-decoration:"));
+    expect(decorations.length).toBeGreaterThan(0);
+    const same = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+    for (const decoration of decorations) {
+      const yaws = rowYaws.get(poleOf(decoration.stableKey)) ?? [];
+      expect(yaws.some((yaw) => same(yaw, decoration.rotationZ)), decoration.stableKey).toBe(true);
+    }
+    // The corner pole points along neither leg, so a fitting that followed the
+    // pole instead of a row would sit at an angle no row fitting uses.
+    expect(decorations.some((decoration) =>
+      !same(poleYaws.get(poleOf(decoration.stableKey))!, decoration.rotationZ)
+    )).toBe(true);
+  });
+
   it("derives pole decoration model and local curves in the core visual output", async () => {
     const rawState = createState();
     expect(rawState.configureModelAssemblies(modelBootstrap()).ok).toBe(true);

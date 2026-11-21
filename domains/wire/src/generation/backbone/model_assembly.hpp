@@ -29,11 +29,18 @@ struct FixturePlacementPlan {
 
 using FixturePlacementPlanByPort = std::unordered_map<ObjectId, FixturePlacementPlan>;
 
-// Picks the pole decoration assembly this pole wears, or nullptr. Model
-// instances and the drop wires that land on them are built in different
-// translation units, so both have to ask here.
-[[nodiscard]] const ModelAssemblyTemplate* pole_decoration_for(const CoreView& view,
-                                                               const Pole& pole);
+struct PoleDecorationPlacement {
+  const ModelAssemblyTemplate* assembly = nullptr;
+  // The pole transform turned to the layout yaw of the row the decoration
+  // taps, so it hangs off the same side of the pole as the fittings the wires
+  // land on instead of pointing along the route.
+  Transformd root{};
+};
+
+// Picks the pole decoration this pole wears, with a null assembly when it
+// wears none. Model instances and the drop wires that land on them are built
+// in different translation units, so both have to ask here.
+[[nodiscard]] PoleDecorationPlacement pole_decoration_for(const CoreView& view, const Pole& pole);
 
 [[nodiscard]] double endpoint_down_offset(const EndpointLayoutRule& endpoint);
 

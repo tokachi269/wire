@@ -224,17 +224,21 @@ std::vector<ConnectionCategory> connect_socket_categories(const ModelAssemblyTem
   return out;
 }
 
-bool pole_has_decoration_target(const CoreView& view,
-                                const Pole& pole,
-                                const ModelAssemblyTemplate& assembly) {
+// Layout yaw of the row this decoration taps, or nullopt when no such row
+// lands on the pole. A pole may carry rows at two angles, so the lowest
+// bundle and lane decide instead of the stored binding order.
+std::optional<double> decoration_target_yaw_deg(const CoreView& view,
+                                                const Pole& pole,
+                                                const ModelAssemblyTemplate& assembly) {
   const SavedBackboneNode* node = view.backbone_node_for_pole(pole.id);
   if (node == nullptr) {
-    return false;
+    return std::nullopt;
   }
   const std::vector<ConnectionCategory> categories = connect_socket_categories(assembly);
   if (categories.empty()) {
-    return false;
+    return std::nullopt;
   }
+  const SavedBackbonePortBinding* chosen = nullptr;
   for (const SavedBackbonePortBinding& binding : view.backbone().port_bindings) {
     if (binding.row_key.node_id != node->node_id) {
       continue;
@@ -243,12 +247,20 @@ bool pole_has_decoration_target(const CoreView& view,
     if (bundle_it == view.bundle_templates().end()) {
       continue;
     }
-    if (std::find(categories.begin(), categories.end(), bundle_it->second.category) !=
+    if (std::find(categories.begin(), categories.end(), bundle_it->second.category) ==
         categories.end()) {
-      return true;
+      continue;
+    }
+    if (chosen == nullptr ||
+        std::tie(binding.bundle_template_id, binding.lane_index) <
+            std::tie(chosen->bundle_template_id, chosen->lane_index)) {
+      chosen = &binding;
     }
   }
-  return false;
+  if (chosen == nullptr) {
+    return std::nullopt;
+  }
+  return chosen->layout_yaw_deg;
 }
 
 EditResult<PortFixtureContext> port_fixture_context(const CoreState& state, const Port& port) {
@@ -631,21 +643,29 @@ EditResult<RowFixturePlacementPlan> row_fixture_placement_plan(
 // Picks one pole decoration for this pole. Model instances and the drop wires
 // that land on them are built in different translation units, so both ask here:
 // a pole must not get wires from an assembly it is not wearing.
-const ModelAssemblyTemplate* pole_decoration_for(const CoreView& view, const Pole& pole) {
-  std::vector<const ModelAssemblyTemplate*> usable{};
+PoleDecorationPlacement pole_decoration_for(const CoreView& view, const Pole& pole) {
+  std::vector<PoleDecorationPlacement> usable{};
   for (const auto& [id, assembly] : view.model_assembly_templates()) {
     static_cast<void>(id);
-    if (is_pole_decoration_candidate(assembly) &&
-        pole_has_decoration_target(view, pole, assembly)) {
-      usable.push_back(&assembly);
+    if (!is_pole_decoration_candidate(assembly)) {
+      continue;
     }
+    const std::optional<double> yaw_deg = decoration_target_yaw_deg(view, pole, assembly);
+    if (!yaw_deg.has_value()) {
+      continue;
+    }
+    PoleDecorationPlacement placement{};
+    placement.assembly = &assembly;
+    placement.root = pole.world_transform;
+    placement.root.rotation_euler_deg.z = *yaw_deg;
+    usable.push_back(placement);
   }
   if (usable.empty()) {
-    return nullptr;
+    return {};
   }
   std::sort(usable.begin(), usable.end(),
-            [](const ModelAssemblyTemplate* a, const ModelAssemblyTemplate* b) {
-              return a->id < b->id;
+            [](const PoleDecorationPlacement& a, const PoleDecorationPlacement& b) {
+              return a.assembly->id < b.assembly->id;
             });
   const std::uint64_t pick =
       support::hash_combine(0x706f6c65ull, static_cast<std::uint64_t>(pole.id));
@@ -975,12 +995,12 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(
   }
 
   for (const Pole& pole : view.poles().items()) {
-    const ModelAssemblyTemplate* decoration = pole_decoration_for(view, pole);
-    if (decoration == nullptr) {
+    const PoleDecorationPlacement decoration = pole_decoration_for(view, pole);
+    if (decoration.assembly == nullptr) {
       continue;
     }
     std::string error{};
-    append_instances(state, pole, 0.0, *decoration, pole.world_transform, {},
+    append_instances(state, pole, 0.0, *decoration.assembly, decoration.root, {},
                      "pole-decoration:" + std::to_string(pole.id), &out.value, &error);
     if (!error.empty()) {
       out.error = std::move(error);

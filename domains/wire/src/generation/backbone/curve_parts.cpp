@@ -722,13 +722,14 @@ void append_pole_decoration_curves_for_node(const CoreState& state,
   if (pole == nullptr) {
     return;
   }
-  const ModelAssemblyTemplate* decoration = pole_decoration_for(state.view(), *pole);
-  if (decoration == nullptr) {
+  const PoleDecorationPlacement decoration = pole_decoration_for(state.view(), *pole);
+  if (decoration.assembly == nullptr) {
     return;
   }
-  const ModelAssemblyTemplate& assembly = *decoration;
+  const ModelAssemblyTemplate& assembly = *decoration.assembly;
 
-  const PoleFrame frame = BuildPoleFrame(pole->world_transform, pole->world_transform.rotation_euler_deg.z);
+  const PoleFrame frame =
+      BuildPoleFrame(pole->world_transform, decoration.root.rotation_euler_deg.z);
   const std::vector<decoration_socket_ref> sockets = decoration_sockets(assembly);
   if (sockets.empty()) {
     return;
@@ -762,7 +763,8 @@ void append_pole_decoration_curves_for_node(const CoreState& state,
       continue;
     }
     const curve_endpoint_ref& target = *endpoints_it->second[socket_ref.index];
-    const Transformd part_world = compose_mount_transform(pole->world_transform, socket_ref.part->local_transform);
+    const Transformd part_world =
+        compose_mount_transform(decoration.root, socket_ref.part->local_transform);
     const Vec3d socket_world = transform_mount_point(part_world, socket_ref.socket->local_position);
     const Vec3d socket_out = socket_direction_world(part_world, socket_ref.socket->local_direction);
     std::uint64_t seed = hash_combine(0, static_cast<std::uint64_t>(node_id));

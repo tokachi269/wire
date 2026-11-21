@@ -657,7 +657,9 @@ PoleDecorationPlacement pole_decoration_for(const CoreView& view, const Pole& po
     PoleDecorationPlacement placement{};
     placement.assembly = &assembly;
     placement.root = pole.world_transform;
-    placement.root.rotation_euler_deg.z = *yaw_deg;
+    // A quarter off the row: fittings are authored with +X away from the pole
+    // (pole_fittings.md), and the row frame's +X runs along the wires.
+    placement.root.rotation_euler_deg.z = *yaw_deg - 90.0;
     usable.push_back(placement);
   }
   if (usable.empty()) {

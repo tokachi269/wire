@@ -1300,15 +1300,17 @@ describe("wire wasm smoke", () => {
     }
     const decorations = models.filter((model) => model.stableKey.startsWith("pole-decoration:"));
     expect(decorations.length).toBeGreaterThan(0);
-    const same = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+    const same = (a: number, b: number) => Math.abs(((a - b) % 360 + 540) % 360 - 180) < 1e-6;
     for (const decoration of decorations) {
       const yaws = rowYaws.get(poleOf(decoration.stableKey)) ?? [];
-      expect(yaws.some((yaw) => same(yaw, decoration.rotationZ)), decoration.stableKey).toBe(true);
+      // A quarter off the row it taps: the fitting faces away from the pole,
+      // while the row frame faces along the wires.
+      expect(yaws.some((yaw) => same(yaw - 90, decoration.rotationZ)), decoration.stableKey).toBe(true);
     }
     // The corner pole points along neither leg, so a fitting that followed the
     // pole instead of a row would sit at an angle no row fitting uses.
     expect(decorations.some((decoration) =>
-      !same(poleYaws.get(poleOf(decoration.stableKey))!, decoration.rotationZ)
+      !same(poleYaws.get(poleOf(decoration.stableKey))! - 90, decoration.rotationZ)
     )).toBe(true);
   });
 

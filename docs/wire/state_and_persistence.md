@@ -43,7 +43,7 @@ pending support nodeの生存期間は次の通り。
 
 ### Save schema
 
-正式v1前のarchive migrationは保証しない。現行`wire_state_v6`だけをexact-keyスキーマとして読み書きし、旧developmentスキーマはunsupportedバージョンとして状態変更前に拒否する。`save -> load -> save`は現行スキーマのauthoritative byte一致を維持し、欠落フィールドを位置、名前、container順から推測しない。
+正式v1前のarchive migrationは保証しない。現行`wire_state_v7`だけをexact-keyスキーマとして読み書きし、旧developmentスキーマはunsupportedバージョンとして状態変更前に拒否する。`save -> load -> save`は現行スキーマのauthoritative byte一致を維持し、欠落フィールドを位置、名前、container順から推測しない。
 
 `SavedBackbonePortBinding`の`support_level`と`support_group_id`は保存値をそのまま読む。loadは段の振り直しや欠落値の補完を行わず、範囲外の値は状態変更前に拒否する。段の割当と物理占有の判断は[`generation.md`](generation.md)のrow placementだけが持つ。
 

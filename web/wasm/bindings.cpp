@@ -336,7 +336,6 @@ template <typename T> [[nodiscard]] T property(const val& object, const char* na
     const val assembly_input = assemblies[assembly_index];
     city::wire::ModelAssemblyTemplate assembly{};
     assembly.id = property<city::wire::ModelAssemblyTemplateId>(assembly_input, "id");
-    assembly.version = property<std::uint64_t>(assembly_input, "version");
     const val parts = assembly_input["parts"];
     const std::size_t part_count = parts["length"].as<std::size_t>();
     assembly.parts.reserve(part_count);
@@ -392,11 +391,6 @@ template <typename T> [[nodiscard]] T property(const val& object, const char* na
     const auto existing = CoreView(trial).model_assembly_templates().find(assembly.id);
     if (existing != CoreView(trial).model_assembly_templates().end()) {
       if (!(existing->second == assembly)) {
-        if (assembly.version <= existing->second.version) {
-          result.error = "model bootstrap: existing assembly " + std::to_string(assembly.id) +
-                         " differs without a newer adapter version";
-          return result;
-        }
         const auto updated = trial.UpdateModelAssemblyTemplate(assembly);
         if (!updated.ok) {
           result.error = updated.error;

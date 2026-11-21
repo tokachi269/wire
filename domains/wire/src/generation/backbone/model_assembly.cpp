@@ -146,7 +146,6 @@ std::uint64_t content_version(const ModelAssemblyTemplate& assembly,
                               const Transformd& world_transform) {
   std::uint64_t hash = 1469598103934665603ull;
   hash_u64(&hash, assembly.id);
-  hash_u64(&hash, assembly.version);
   hash_u64(&hash, part.part_id);
   hash_u64(&hash, part.descriptor_version);
   hash_bytes(&hash, part.model_key.data(), part.model_key.size());

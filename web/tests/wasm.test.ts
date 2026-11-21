@@ -73,7 +73,6 @@ function modelBootstrap(): ModelAssemblyBootstrapInput {
   return {
     assemblies: [{
       id: 9901,
-      version: 1,
       parts: [{
         partId: 1, modelKey: "pole_body", descriptorName: "pole", descriptorVersion: 1,
         fitMode: 1, localTransform: identityTransform(), sockets: []
@@ -81,7 +80,6 @@ function modelBootstrap(): ModelAssemblyBootstrapInput {
       wireSocket: null
     }, {
       id: 9902,
-      version: 1,
       parts: [{
         partId: 1, modelKey: "hv_crossarm", descriptorName: "crossarm", descriptorVersion: 1,
         fitMode: 0, localTransform: identityTransform(), sockets: [{
@@ -97,7 +95,6 @@ function modelBootstrap(): ModelAssemblyBootstrapInput {
       endpointMountSocket: { partId: 1, socketName: "endpoint_mount" }
     }, {
       id: 9903,
-      version: 1,
       parts: [{
         partId: 1, modelKey: "hv_insulator", descriptorName: "insulator", descriptorVersion: 1,
         fitMode: 0, localTransform: identityTransform(), sockets: [{
@@ -109,7 +106,6 @@ function modelBootstrap(): ModelAssemblyBootstrapInput {
       wireSocket: { partId: 1, socketName: "wire" }
     }, {
       id: 9904,
-      version: 1,
       parts: [{
         partId: 1, modelKey: "communication_clamp", descriptorName: "clamp", descriptorVersion: 1,
         fitMode: 0, localTransform: identityTransform(), sockets: [{
@@ -121,7 +117,6 @@ function modelBootstrap(): ModelAssemblyBootstrapInput {
       wireSocket: { partId: 1, socketName: "wire" }
     }, {
       id: 9905,
-      version: 1,
       parts: [{
         partId: 1, modelKey: "pole_decoration_x", descriptorName: "poleDecorationX", descriptorVersion: 1,
         fitMode: 0,
@@ -1499,7 +1494,7 @@ describe("wire wasm smoke", () => {
     )).toBe(false);
   });
 
-  it("upgrades an older saved row assembly by adapter version during restore", () => {
+  it("upgrades an older saved row assembly during restore", () => {
     const oldState = createState();
     const oldBootstrap = modelBootstrap();
     expect(oldState.configureModelAssemblies(oldBootstrap).ok).toBe(true);
@@ -1510,7 +1505,6 @@ describe("wire wasm smoke", () => {
 
     const upgraded = modelBootstrap();
     const row = upgraded.assemblies.find((assembly) => assembly.id === 9902)!;
-    row.version = 2;
     row.parts[0].localTransform.positionX = 0.17;
     row.parts[0].sockets[0].positionZ = 0.04;
     row.endpointMountSocket = { partId: 1, socketName: "endpoint_mount" };
@@ -2107,7 +2101,7 @@ describe("wire wasm smoke", () => {
     }));
 
     const text = savedState.saveState();
-    expect(text.startsWith("wire_state_v6\n")).toBe(true);
+    expect(text.startsWith("wire_state_v7\n")).toBe(true);
     const loadedState = createState();
     const loaded = loadedState.loadState(text);
     expect(loaded.ok, loaded.error).toBe(true);

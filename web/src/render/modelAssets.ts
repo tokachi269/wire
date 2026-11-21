@@ -24,7 +24,6 @@ export interface ModelAssetAdapter {
   visibleLengthM?: number;
   radialReferenceM?: number;
   radialTopM?: number;
-  adapterVersion: number;
 }
 
 export interface LoadedModelAsset {
@@ -70,32 +69,27 @@ export const modelAssetAdapters = {
     mountRule: "center",
     // The authored lower-end radius is only the radial reference; the belt is
     // anchored at its own center and scaled to the actual placement height.
-    radialReferenceM: poleRadiusAtDistanceFromTop(polePrimitive.totalLengthM),
-    adapterVersion: 5
+    radialReferenceM: poleRadiusAtDistanceFromTop(polePrimitive.totalLengthM)
   },
   communicationClamp: {
     modelKey: "communication_clamp",
     url: communicationClampUrl,
-    mountRule: "center",
-    adapterVersion: 2
+    mountRule: "center"
   },
   communicationClampLong: {
     modelKey: "communication_clamp_long",
     url: communicationClampLongUrl,
-    mountRule: "center",
-    adapterVersion: 2
+    mountRule: "center"
   },
   crossarmHv: {
     modelKey: "hv_crossarm",
     url: crossarmHvUrl,
-    mountRule: "center",
-    adapterVersion: 2
+    mountRule: "center"
   },
   hvInsulator: {
     modelKey: "hv_insulator",
     url: hvInsulatorUrl,
-    mountRule: "bottom",
-    adapterVersion: 2
+    mountRule: "bottom"
   },
   poleBody: {
     modelKey: "pole_body",
@@ -104,70 +98,59 @@ export const modelAssetAdapters = {
     // tools/create_japan_distribution_pole_primitive.py POLE settings.
     visibleLengthM: polePrimitive.visibleHeightM,
     radialReferenceM: poleRadiusAtDistanceFromTop(polePrimitive.visibleHeightM),
-    radialTopM: poleRadiusAtDistanceFromTop(0.0),
-    adapterVersion: 5
+    radialTopM: poleRadiusAtDistanceFromTop(0.0)
   },
   poleTransformerM01: {
     modelKey: "pole_transformer_m_01",
     url: poleTransformerUrl,
     // The strap loops are authored around the pole axis, so the authored origin
     // is the mount datum; a bounds-derived anchor would move the tank off it.
-    mountRule: "origin",
-    adapterVersion: 2
+    mountRule: "origin"
   },
   nonHvSupportRowProxy: {
     modelKey: "non_hv_support_row_proxy",
     url: "primitive:non_hv_support_row_proxy",
-    mountRule: "center",
-    adapterVersion: 1
+    mountRule: "center"
   },
   poleTransformer20kvaProxy: {
     modelKey: "pole_transformer_20kva_proxy",
     url: "primitive:pole_transformer_20kva_proxy",
-    mountRule: "center",
-    adapterVersion: 1
+    mountRule: "center"
   },
   transformerIntermediateInsulatorProxy: {
     modelKey: "transformer_intermediate_insulator_proxy",
     url: "primitive:transformer_intermediate_insulator_proxy",
-    mountRule: "center",
-    adapterVersion: 1
+    mountRule: "center"
   },
   transformerSupportBracketProxy: {
     modelKey: "transformer_support_bracket_proxy",
     url: "primitive:transformer_support_bracket_proxy",
-    mountRule: "center",
-    adapterVersion: 1
+    mountRule: "center"
   },
   pc6CutoutProxy: {
     modelKey: "pc6_cutout_proxy",
     url: "primitive:pc6_cutout_proxy",
-    mountRule: "center",
-    adapterVersion: 1
+    mountRule: "center"
   },
   tma13CutoutMountProxy: {
     modelKey: "tma13_cutout_mount_proxy",
     url: "primitive:tma13_cutout_mount_proxy",
-    mountRule: "center",
-    adapterVersion: 1
+    mountRule: "center"
   },
   arresterGlB6gProxy: {
     modelKey: "arrester_gl_b6g_proxy",
     url: "primitive:arrester_gl_b6g_proxy",
-    mountRule: "center",
-    adapterVersion: 1
+    mountRule: "center"
   },
   hvTriplexTermination60Proxy: {
     modelKey: "hv_triplex_termination_60_proxy",
     url: "primitive:hv_triplex_termination_60_proxy",
-    mountRule: "center",
-    adapterVersion: 1
+    mountRule: "center"
   },
   aerialOpticalClosureRca3aoProxy: {
     modelKey: "aerial_optical_closure_rca3ao_proxy",
     url: "primitive:aerial_optical_closure_rca3ao_proxy",
-    mountRule: "center",
-    adapterVersion: 1
+    mountRule: "center"
   }
 } as const satisfies Record<string, ModelAssetAdapter>;
 
@@ -225,7 +208,6 @@ function descriptorVersion(
   let hash = 2166136261;
   const versionParts: Array<string | number> = [
     kind,
-    adapter.adapterVersion,
     bounds.min.x,
     bounds.min.y,
     bounds.min.z,
@@ -638,13 +620,11 @@ export function buildDefaultModelBootstrap(
     assemblies: [
       {
         id: poleAssemblyId,
-        version: 4,
         parts: [part(pole, 1, 1, distributionPoleTransform)],
         wireSocket: null
       },
       {
         id: hvRowAssemblyId,
-        version: 6,
         parts: [
           part(crossarm, 1, 3, crossarmTransform, endpointMountSocket),
           part(belt, 2, 2, beltTransform)
@@ -654,13 +634,11 @@ export function buildDefaultModelBootstrap(
       },
       {
         id: hvEndpointAssemblyId,
-        version: 1,
         parts: [part(insulator, 1, 0, identityTransform(), hvWireSocket)],
         wireSocket: { partId: 1, socketName: "wire" }
       },
       {
         id: communicationEndpointAssemblyId,
-        version: 3,
         parts: [
           part(
             communicationClamp, 1, 3,
@@ -671,13 +649,11 @@ export function buildDefaultModelBootstrap(
       },
       {
         id: communicationPoleAssemblyId,
-        version: 4,
         parts: [part(pole, 1, 1, communicationPoleTransform)],
         wireSocket: null
       },
       {
         id: lowVoltageEndpointAssemblyId,
-        version: 4,
         parts: [
           part(
             communicationClampLong, 1, 0,
@@ -688,13 +664,11 @@ export function buildDefaultModelBootstrap(
       },
       {
         id: beltRowAssemblyId,
-        version: 4,
         parts: [part(belt, 1, 2, beltTransform)],
         wireSocket: null
       },
       {
         id: poleTransformerAssemblyId,
-        version: 5,
         parts: [
           part(transformer, 1, 0, transformerTransform, transformer.sockets),
           part(crossarm, 2, 0, transformerArmTransform(-1)),

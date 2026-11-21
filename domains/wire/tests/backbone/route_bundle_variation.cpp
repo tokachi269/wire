@@ -363,7 +363,7 @@ bool C882_backbone_variation_descriptor_is_atomically_associated_and_persisted()
       "persistent validation reran the current resolver against saved concrete instances");
 
   std::string malformed_archive = serialized;
-  malformed_archive.replace(0, std::string("wire_state_v6").size(),
+  malformed_archive.replace(0, std::string("wire_state_v7").size(),
                             "wire_state_v4");
   CoreState load_target = loaded;
   std::string load_before{};

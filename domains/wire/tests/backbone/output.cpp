@@ -2846,7 +2846,6 @@ bool C766_row_fixture_and_wire_follow_port_band_lateral_change() {
     model_versions.emplace(instance.stable_key, instance.content_version);
   }
   city::wire::ModelAssemblyTemplate moved_row = row_assembly;
-  moved_row.version = 2;
   moved_row.parts.front().local_transform.position.x += 0.05;
   const auto moved = state.UpdateModelAssemblyTemplate(moved_row);
   if (!moved.ok || moved.value == false ||

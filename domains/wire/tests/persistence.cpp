@@ -28,7 +28,7 @@ bool C750_authoritative_save_is_deterministic_and_changes_after_edit() {
   std::string repeated_save{};
   if (!make_roundtrip_source(&state, &first_save, nullptr)) return false;
   const auto saved = state.SerializeAuthoritative(&repeated_save);
-  if (!saved.ok || first_save.empty() || first_save.rfind("wire_state_v6\n", 0) != 0 ||
+  if (!saved.ok || first_save.empty() || first_save.rfind("wire_state_v7\n", 0) != 0 ||
       first_save != repeated_save) {
     return false;
   }
@@ -579,7 +579,6 @@ bool C763_model_assembly_registration_is_transactional_and_persistent() {
   city::wire::CoreState state;
   city::wire::ModelAssemblyTemplate assembly{};
   assembly.id = 9001;
-  assembly.version = 4;
   city::wire::ModelAssemblyPart part{};
   part.part_id = 7;
   part.model_key = "hv_phase_1_disc_3";

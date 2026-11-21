@@ -21,7 +21,7 @@ namespace {
 
 class StateWriter {
 public:
-  StateWriter() { text_ = "wire_state_v6\n"; }
+  StateWriter() { text_ = "wire_state_v7\n"; }
 
   void value(const std::string& key, bool input) { line(key, input ? "1" : "0"); }
 
@@ -74,7 +74,7 @@ private:
 class StateReader {
 public:
   bool parse(const std::string& text) {
-    static constexpr std::string_view kHeader = "wire_state_v6\n";
+    static constexpr std::string_view kHeader = "wire_state_v7\n";
     if (!text.starts_with(kHeader)) {
       error_ = "authoritative deserialization: unsupported or missing version";
       return false;
@@ -988,7 +988,7 @@ bool archive_model_assembly_template(Archive& archive, const std::string& prefix
         !archive.string_value(child(prefix, "endpoint_mount_socket.socket_name"),
                               value.endpoint_mount_socket->socket_name)) return false;
   }
-  return archive.field(prefix, "version", value.version);
+  return true;
 }
 
 template <typename K, typename V, typename Write>

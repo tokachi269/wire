@@ -75,7 +75,7 @@ beltは円環1つなので配置高さの`pole_radius_at_height_m`へradial scal
 - 取付高さが公称から1m動いても電柱半径の差は7mm程度で、バンドの板厚と同程度に収まる。高さ別assetは持たない。
 - 腕金は焼き込まない。既存の`hv_crossarm`をassemblyの別partとして置き、長さはlocal transformのscaleで決める。
 - 電柱への付き方と、どこまでを1モデルに含めるかは`pole_fittings.md`が決める。
-- assetを焼き直したらassemblyの`version`を上げる。descriptorはbounds差分を検出するが、bootstrapは既存assemblyとの差分を新しいversionなしでは受け付けず、保存済みworkspaceの復元が失敗する。
+- assetを焼き直したら再読み込みだけでよい。assemblyは手で上げるversionを持たず、bootstrapは既存assemblyとの差分をそのまま上書きする。descriptorVersionはbounds、anchor、socketのハッシュなので焼き直しは自動で検出される。
 
 ## 電柱本体の長さ
 

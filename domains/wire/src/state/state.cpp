@@ -2174,10 +2174,6 @@ EditResult<bool> CoreState::UpdateModelAssemblyTemplate(
     result.error = "model assembly invalid input: model assembly template not found";
     return result;
   }
-  if (model_assembly_template.version <= existing->second.version) {
-    result.error = "model assembly invalid input: model assembly update requires a newer version";
-    return result;
-  }
 
   CoreState trial = *this;
   trial.authoritative_.model_assembly_templates[model_assembly_template.id] =

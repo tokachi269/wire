@@ -121,7 +121,7 @@ public:
   EditResult<bool> UpdateBackboneBundlePlacement(ObjectId bundle_id, bool placement_explicit,
                                                  double height_m, double lateral_m, double spacing_m);
   // Registers one adapter-built assembly before any template references it.
-  // Existing ids are rejected; versioned adapter reload uses UpdateModelAssemblyTemplate.
+  // Existing ids are rejected; an adapter reload uses UpdateModelAssemblyTemplate.
   EditResult<bool> RegisterModelAssemblyTemplate(const ModelAssemblyTemplate& model_assembly_template);
   EditResult<bool> UpdateModelAssemblyTemplate(const ModelAssemblyTemplate& model_assembly_template);
   EditResult<bool> ApplyBundleRelatedPoleTypeToExistingPoles(BundleTemplateId bundle_template_id);

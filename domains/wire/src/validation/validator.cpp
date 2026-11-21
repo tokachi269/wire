@@ -523,9 +523,9 @@ ValidationResult CoreState::Validate() const {
     }
   }
   for (const auto& [assembly_id, assembly] : model_assembly_templates) {
-    if (assembly.id != assembly_id || assembly.id == kInvalidModelAssemblyTemplateId || assembly.version == 0) {
+    if (assembly.id != assembly_id || assembly.id == kInvalidModelAssemblyTemplateId) {
       result.issues.push_back({ValidationSeverity::kError, "ModelAssemblyIdentityInvalid",
-                               "Model assembly id and version must be valid", kInvalidObjectId});
+                               "Model assembly id must be valid", kInvalidObjectId});
     }
     std::unordered_set<std::uint32_t> part_ids{};
     bool wire_socket_found = !assembly.wire_socket.has_value();

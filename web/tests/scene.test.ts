@@ -488,13 +488,11 @@ function modelBootstrap(): ModelAssemblyBootstrapInput {
   return {
     assemblies: [{
       id: 9901,
-      version: 1,
       parts: [{ partId: 1, modelKey: "pole_body", descriptorName: "pole", descriptorVersion: 1,
         fitMode: 1, localTransform: identityTransform(), sockets: [] }],
       wireSocket: null
     }, {
       id: 9902,
-      version: 1,
       parts: [{
         partId: 1, modelKey: "hv_crossarm", descriptorName: "crossarm", descriptorVersion: 1,
         fitMode: 0, localTransform: identityTransform(),
@@ -505,7 +503,6 @@ function modelBootstrap(): ModelAssemblyBootstrapInput {
       endpointMountSocket: { partId: 1, socketName: "endpoint_mount" }
     }, {
       id: 9903,
-      version: 1,
       parts: [{
         partId: 1, modelKey: "hv_insulator", descriptorName: "insulator", descriptorVersion: 1,
         fitMode: 0, localTransform: identityTransform(),

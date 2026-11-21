@@ -15,7 +15,19 @@ Blenderの1ファイルを制作上の正本にする。AIが作ったモデル�
 - 固定部品の形状と相対配置はBlenderが決める。Coreは既存の取付位置とroot姿勢を決め、row/endpoint fixtureを引き続き所有する。変圧器の固定支持腕を可変rowへ置き換えない。
 - adapterは選択したROOTを基準にモデルと外部socketを抽出する。CoreはGLBを読まず、内部接続も推測しない。
 
-これは移行先の契約であり、Blenderからの往復編集はまだ未実装である。現行M01はタンク軸原点のGLBとTypeScriptの支持腕・碍子配置を使っている。まずrootの軸回転を修正・検証し、次に1パターンの往復編集、固定配線、2パターンの順で独立して検証する。
+M01の固定部品は`assets/pole_fittings.blend`にまとめ、電柱軸上のROOTから1つのrigid partとして登録する。固定部品の相対位置をTypeScriptへ転記する経路は廃止した。固定配線と2パターンは、1パターンの往復編集を検証してから独立した単位で進める。
+
+### 編集と出力
+
+`assets/pole_fittings.blend`を開き、`Fittings/transformer_m_01`のROOT以下を編集する。タンク全体の移動は`transformer_m_01` Empty、左右の支持腕は`support_left`と`support_right`、腕上の碍子は`arm_insulator`を動かす。タンクの外部socketはその子階層にあり、タンクの移動に追従する。左右の腕の位置は別々に編集でき、形状の編集は共有Meshに反映される。`Reference`の電柱は確認用で、出力しない。
+
+保存後に次のcommandで出力し、既存Wire viewerを再読込する。出力先は`web/src/assets/pole_fittings.glb`である。Blenderの通常のglTF exporterでも、`Fittings`だけを選択し、GLB、Y-up、Custom Properties有効、Apply Modifiers無効で書き出せる。
+
+```sh
+blender --background --factory-startup assets/pole_fittings.blend --python tools/export_fittings.py
+```
+
+ROOTの移動・回転・scaleは比較展示用として読み捨てる。部品の配置を変えるときはROOT以下の対象を編集する。外部socketの安定名はEmptyの`wire_socket` Custom Propertyが正本であり、Mesh共有の判定には名前を使わない。
 
 ## 分割数
 
@@ -78,7 +90,7 @@ Blenderの1ファイルを制作上の正本にする。AIが作ったモデル�
 ## 座標と単位
 
 - メートル。glTF Y-upで書き出す。loaderが`rotation.x = +90°`を掛けてCoreのZ-upへ入れるので、モデルの+ZはCoreの-Yになる。
-- 原点は配置の基準点に置く。bboxの中心や電柱面ではなく、adapterがそのまま使える点にする。変圧器M01はタンク軸かつトレイ下面をy=0にし、mount ruleを`origin`にしている。
+- 原点は配置の基準点に置く。bboxの中心や電柱面ではなく、adapterがそのまま使える点にする。M01のパターンROOTは電柱軸と支持腕上面の交点で、mount ruleは`origin`とする。
 - 参照写真のカメラ側を+Z、電柱側を-X、張り出し側を+Xにそろえる。
 
 ## グループ
@@ -113,4 +125,3 @@ Blender移行後は、部品移動、GLBへの再出力、Wireへの再読込を
 
 - ポリゴン予算の上限。変圧器M01は本体1,548三角形に既存腕金12三角形。
 - mesh node数。既存assetは1、変圧器M01は18。
-- 既存assetの旧原点から、電柱軸上のパターンROOTへ移す際の具体的な変換手順。現行M01のタンク軸原点と、移行先のROOTを二重に補正しない。

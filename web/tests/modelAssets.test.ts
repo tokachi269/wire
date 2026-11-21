@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import {
@@ -10,6 +10,28 @@ import {
   loadModelAssets,
   ModelAssetCache
 } from "../src/render/modelAssets";
+
+afterEach(() => vi.unstubAllGlobals());
+
+function fixtureScene(): THREE.Group {
+  const source = new THREE.Group();
+  const root = new THREE.Group();
+  root.name = "transformer_m_01_ROOT";
+  root.add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.2, 0.4), new THREE.MeshStandardMaterial()));
+  source.add(root);
+  return source;
+}
+
+async function readFittings(): Promise<THREE.Group> {
+  // Node has no image decoder; geometry, materials and their shared identities
+  // are real GLB data. This test does not verify texture appearance.
+  vi.stubGlobal("self", globalThis);
+  vi.stubGlobal("createImageBitmap", async () => ({ width: 1, height: 1, close() {} }));
+  const bytes = await fs.readFile(fileURLToPath(new URL("../src/assets/pole_fittings.glb", import.meta.url)));
+  return (await new GLTFLoader().parseAsync(
+    bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), ""
+  )).scene;
+}
 
 describe("model asset cache", () => {
   it("registers catalog support-detail proxies with fixed dimensions and no GLB load", async () => {
@@ -87,10 +109,7 @@ describe("model asset cache", () => {
 
   it("builds HV, LV, and communication assemblies from measured local assets", async () => {
     const load = vi.fn(async () => {
-      const geometry = new THREE.BoxGeometry(0.1, 0.2, 0.4);
-      const source = new THREE.Group();
-      source.add(new THREE.Mesh(geometry, new THREE.MeshStandardMaterial()));
-      return source;
+      return fixtureScene();
     });
     const cache = new ModelAssetCache(load);
     const assets = await loadModelAssets(cache);
@@ -172,16 +191,8 @@ describe("model asset cache", () => {
     expect(lowVoltage.wireSocket).toEqual({ partId: 1, socketName: "wire" });
   });
   it("reads the transformer's wire sockets out of the shipped GLB", async () => {
-    const path = fileURLToPath(new URL("../src/assets/pole_transformer_m_01.glb", import.meta.url));
-    const bytes = await fs.readFile(path);
-    const data = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
     const cache = new ModelAssetCache(async (url) => {
-      if (!url.endsWith("pole_transformer_m_01.glb")) {
-        const source = new THREE.Group();
-        source.add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.2, 0.4), new THREE.MeshStandardMaterial()));
-        return source;
-      }
-      return (await new GLTFLoader().parseAsync(data, "")).scene as unknown as THREE.Group;
+      return url.endsWith("pole_fittings.glb") ? readFittings() : fixtureScene();
     });
     const assets = await loadModelAssets(cache);
     const transformer = assets.poleTransformerM01;
@@ -193,12 +204,12 @@ describe("model asset cache", () => {
       "connect_hv_0", "connect_hv_1", "connect_lv_0", "connect_lv_1", "connect_lv_2"
     ]);
     const [hv0, , lv0] = transformer.sockets;
-    expect(hv0.positionX).toBeCloseTo(-0.2, 6);
+    expect(hv0.positionX).toBeCloseTo(0.2292666666666667, 6);
     expect(hv0.positionY).toBeCloseTo(-0.125, 6);
     expect(hv0.positionZ).toBeCloseTo(0.655, 6);
     expect(hv0.directionX).toBeCloseTo(-0.330350, 5);
     expect(hv0.directionZ).toBeCloseTo(0.943858, 5);
-    expect(lv0.positionX).toBeCloseTo(-0.1, 6);
+    expect(lv0.positionX).toBeCloseTo(0.3292666666666667, 6);
     expect(lv0.positionY).toBeCloseTo(-0.1, 6);
     expect(lv0.positionZ).toBeCloseTo(0, 6);
     expect(lv0.directionY).toBeCloseTo(-0.242536, 5);
@@ -212,5 +223,41 @@ describe("model asset cache", () => {
     expect(tank.sockets).toEqual(transformer.sockets);
     // curve_parts.cpp drops a socket whose part is not kRigid.
     expect(tank.fitMode).toBe(0);
+    expect(assembly.parts).toHaveLength(1);
+    expect(tank.localTransform.positionX).toBe(0);
+    const left = transformer.source.getObjectByName("support_left") as THREE.Mesh;
+    const right = transformer.source.getObjectByName("support_right") as THREE.Mesh;
+    expect(left.geometry).toBe(right.geometry);
+    expect(left.material).toBe(right.material);
+    const armBounds = new THREE.Box3().setFromObject(left);
+    expect(armBounds.min.x).toBeCloseTo(-0.25, 6);
+    expect(armBounds.max.x).toBeCloseTo(1.25, 6);
+    expect(armBounds.max.z).toBeCloseTo(0, 6);
+    const insulator = transformer.source.getObjectByName("arm_insulator")!;
+    expect(new THREE.Box3().setFromObject(insulator).min.z).toBeCloseTo(0, 6);
+  });
+
+  it("keeps authored child edits and sockets while excluding the root display transform", async () => {
+    const source = await readFittings();
+    const root = source.getObjectByName("transformer_m_01_ROOT")!;
+    root.position.set(12, 5, -3);
+    root.rotation.set(0.4, -0.7, 1.2);
+    root.scale.set(2, 2, 2);
+    const tank = root.getObjectByName("transformer_m_01")!;
+    tank.position.x += 0.15;
+    root.getObjectByName("connect_hv_0")!.name = "External HV connector";
+    const asset = await new ModelAssetCache(async () => source).load("poleTransformerM01");
+    const socket = asset.sockets.find((entry) => entry.name === "connect_hv_0")!;
+    expect(socket.positionX).toBeCloseTo(0.2292666666666667 + 0.15, 6);
+    const arm = asset.source.getObjectByName("support_left")!;
+    const position = new THREE.Vector3().setFromMatrixPosition(arm.matrixWorld);
+    expect(position.x).toBeCloseTo(0.5, 6);
+    expect(root.position.x).toBe(12);
+    expect(root.scale.x).toBe(2);
+  });
+
+  it("rejects a missing pattern root instead of loading the whole display", async () => {
+    const cache = new ModelAssetCache(async () => new THREE.Group());
+    await expect(cache.load("poleTransformerM01")).rejects.toThrow("pattern root");
   });
 });

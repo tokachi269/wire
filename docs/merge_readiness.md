@@ -2,7 +2,7 @@
 
 この文書は、mainへmergeする前のゲートを示す。現在の保留、blocker、検証で見つかった不足は[status.md](status.md)にある。
 
-柱上機材のBlender制作移行は段階実装中である。root回転の修正と、Blender往復編集・固定配線・複数パターンの完成を区別する。残る確認は[status.mdの柱上機材](status.md#柱上機材の制作移行)、制作契約は[wire/pole_fittings.md](wire/pole_fittings.md)を参照する。
+柱上機材のBlender制作移行は段階実装中である。M01の1パターンは制作blendとGLBの往復・外部socket追従をデータ上で検証済みだが、新GLBのviewer上の最終確認は未実施である。固定配線と複数パターンは次段階として残る。残る確認は[status.mdの柱上機材](status.md#柱上機材の制作移行)、制作契約は[wire/pole_fittings.md](wire/pole_fittings.md)を参照する。
 
 ## 必須の確認
 

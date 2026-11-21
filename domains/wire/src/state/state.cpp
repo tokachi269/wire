@@ -2207,28 +2207,29 @@ EditResult<bool> CoreState::UpdateModelAssemblyTemplate(
       return result;
     }
   }
-  if (!affected_span_ids.empty()) {
-    EditResult<VisualCurvePartCache> visual_curves =
-        generation::backbone::make_visual_curve_parts(trial, {}, affected_span_ids);
-    if (!visual_curves.ok) {
-      result.error = visual_curves.error;
-      return result;
-    }
-    EditResult<generation::backbone::FixturePlacementPlanByPort> fixture_plan =
-        generation::backbone::fixture_placement_plan_from_cache(trial);
-    if (!fixture_plan.ok) {
-      result.error = fixture_plan.error;
-      return result;
-    }
-    EditResult<VisualModelInstanceCache> model_instances =
-        generation::backbone::materialize_model_assemblies(trial, fixture_plan.value);
-    if (!model_instances.ok) {
-      result.error = model_instances.error;
-      return result;
-    }
-    trial.cache_visual_curve_parts(std::move(visual_curves.value));
-    trial.cache_visual_model_instances(std::move(model_instances.value));
+  // Visuals also depend on pole assemblies and the decoration catalog. An
+  // empty row/endpoint span set still requires a visual refresh; an empty
+  // curve scope rebuilds those catalog-dependent outputs through the same path.
+  EditResult<VisualCurvePartCache> visual_curves =
+      generation::backbone::make_visual_curve_parts(trial, {}, affected_span_ids);
+  if (!visual_curves.ok) {
+    result.error = visual_curves.error;
+    return result;
   }
+  EditResult<generation::backbone::FixturePlacementPlanByPort> fixture_plan =
+      generation::backbone::fixture_placement_plan_from_cache(trial);
+  if (!fixture_plan.ok) {
+    result.error = fixture_plan.error;
+    return result;
+  }
+  EditResult<VisualModelInstanceCache> model_instances =
+      generation::backbone::materialize_model_assemblies(trial, fixture_plan.value);
+  if (!model_instances.ok) {
+    result.error = model_instances.error;
+    return result;
+  }
+  trial.cache_visual_curve_parts(std::move(visual_curves.value));
+  trial.cache_visual_model_instances(std::move(model_instances.value));
   *this = std::move(trial);
   result.ok = true;
   result.value = true;

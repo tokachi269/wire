@@ -165,6 +165,10 @@ async function productionLikeModelBootstrap(): Promise<ModelAssemblyBootstrapInp
     const geometry = new THREE.BoxGeometry(0.1, 0.2, 0.4);
     const source = new THREE.Group();
     source.add(new THREE.Mesh(geometry, new THREE.MeshStandardMaterial()));
+    const root = new THREE.Group();
+    root.name = "transformer_m_01_ROOT";
+    root.add(...source.children);
+    source.add(root);
     return source;
   };
   const cache = new ModelAssetCache(load);
@@ -1531,6 +1535,58 @@ describe("wire wasm smoke", () => {
       part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable &&
       part.info.bundleTemplateId === 102
     )).toBe(false);
+  });
+
+  it("refreshes decoration parts and sockets when restoring an updated assembly", async () => {
+    const beforeBootstrap = modelBootstrap();
+    const beforeAssembly = beforeBootstrap.assemblies.find((entry) => entry.id === 9905)!;
+    beforeAssembly.parts.push({
+      ...structuredClone(beforeAssembly.parts[0]), partId: 2, modelKey: "retired_decoration_part", sockets: []
+    });
+    const before = await WireBridge.create();
+    expect(before.configureModelAssemblies(beforeBootstrap).ok).toBe(true);
+    expect(before.generate(SUPPORT_DETAIL_SCENE_POINTS, [101, 102], 0, 1, [3, 1], 0, 8, []).ok).toBe(true);
+    const source = before.scene();
+    const saved = before.saveState();
+    const afterBootstrap = modelBootstrap();
+    const afterPart = afterBootstrap.assemblies.find((entry) => entry.id === 9905)!.parts[0];
+    afterPart.localTransform.positionX += 0.17;
+    const restored = await WireBridge.create();
+    expect(restored.configureModelAssemblies(afterBootstrap).ok).toBe(true);
+    const loaded = restored.loadState(saved);
+    expect(loaded.ok, loaded.error).toBe(true);
+    const scene = restored.scene();
+    expect(scene.models.some((model) => model.modelKey === "retired_decoration_part")).toBe(false);
+    expect(scene.ports).toEqual(source.ports);
+    expect(scene.spans).toEqual(source.spans);
+    expect(scene.models.filter((model) => !model.stableKey.startsWith("pole-decoration:")))
+      .toEqual(source.models.filter((model) => !model.stableKey.startsWith("pole-decoration:")));
+    const decorations = scene.models.filter((model) => model.stableKey.startsWith("pole-decoration:"));
+    expect(decorations).toHaveLength(scene.poles.length);
+    for (const model of decorations) {
+      const previous = source.models.find((entry) => entry.stableKey === model.stableKey)!;
+      const rotation = new THREE.Euler(
+        THREE.MathUtils.degToRad(model.rotationX), THREE.MathUtils.degToRad(model.rotationY),
+        THREE.MathUtils.degToRad(model.rotationZ), "ZYX"
+      );
+      const displacement = new THREE.Vector3(0.17, 0, 0).applyEuler(rotation);
+      expect(new THREE.Vector3(model.positionX - previous.positionX,
+        model.positionY - previous.positionY, model.positionZ - previous.positionZ)
+        .distanceTo(displacement)).toBeLessThan(1e-9);
+      const nodeId = scene.supportNodes.find((node) => node.poleId === model.stableKey.split(":")[1])!.id;
+      const curves = scene.parts.filter((part) => part.info.sourceNodeId === nodeId &&
+        part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable);
+      expect(curves.length).toBeGreaterThan(0);
+      for (const curve of curves) {
+        const old = source.parts.find((part) => part.info.partKey === curve.info.partKey)!;
+        expect(new THREE.Vector3().fromArray(curve.samples, curve.samples.length - 3)
+          .sub(new THREE.Vector3().fromArray(old.samples, old.samples.length - 3))
+          .distanceTo(displacement)).toBeLessThan(1e-9);
+        expect(Array.from(curve.samples.subarray(0, 3))).toEqual(Array.from(old.samples.subarray(0, 3)));
+      }
+    }
+    before.dispose();
+    restored.dispose();
   });
 
   it("upgrades an older saved row assembly during restore", () => {

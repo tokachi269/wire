@@ -13,9 +13,13 @@ merge前のゲートは[merge_readiness.md](merge_readiness.md)にある。こ�
 
 ### 柱上機材の制作移行
 
-制作方針の正本は[wire/pole_fittings.md](wire/pole_fittings.md)。現行M01の固定支持腕と碍子はまだTypeScriptの相対配置であり、Blenderを正本とした往復編集は未実装である。次段階は1つのblend内のCollectionとROOTから1パターンを出力し、部品移動・再出力・外部socketの追従を既存viewerで確認すること。固定配線のLINES読込と、共有Meshを持つ2パターンの編集・実行時選択は、その後の独立した段階として残る。
+制作方針の正本は[wire/pole_fittings.md](wire/pole_fittings.md)。M01の固定部品は`assets/pole_fittings.blend`内のCollectionとROOTへ移し、TypeScriptの相対配置と旧生成器を廃止した。タンクと支持腕を動かした別コピーを保存・再読込し、GLB再出力後のadapter、InstancedMesh行列、Core外部socketと接続曲線端点への反映を確認した。旧4part保存から1partへの読込で旧キャッシュが残る問題も、既存のモデル更新処理で修正した。
+
+新しいGLBを使ったviewerでの最終的な見た目、材質、操作による往復確認は未実施である。ユーザーの指示により画面操作とキャプチャを止めており、テスト・ビルド成功を画面確認の代わりにしない。画面で1パターンの移行結果を確認した後に、固定配線のLINES読込と、共有Meshを持つ2パターンの編集・実行時選択へ進む。
 
 固定部品と可変rowの一般的な衝突回避は今回のroot回転修正では保証しない。タンク、支持腕、固定配線の造形は、往復編集が通った後にBlenderで調整する。part補正値や機材専用のCore分岐で補わない。
+
+モデル更新の再導出は装飾専用assemblyで検証した。同じassemblyをrow/endpointと装飾候補へ兼用した場合の非空scope更新は、今回の検証対象に含めていない。
 
 外部socketの番号について、制作規約はcategory内のレーン番号と説明するが、現行Coreはcategory内の端点列をlane・edge Bundle・Spanの順で並べて参照する。曲がり角では同じlaneの両脚が並ぶため、この説明との差を別途確認する。今回の修正は番号の解釈を変えず、実際に選択されたsocketへの位置追従を検証する。
 

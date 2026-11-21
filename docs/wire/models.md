@@ -8,6 +8,12 @@
 
 ## モデルの3層構造とCoreテンプレート
 
+柱上機材の固定パターンは`assets/pole_fittings.blend`を制作正本とし、`web/src/assets/pole_fittings.glb`へ出力する。`Fittings` Collection内の各パターンは電柱軸上のROOT Emptyを持つ。ROOTのtransformは比較展示用であり、adapterは指定ROOTの子階層をそのROOTのlocal座標で読む。内部の部品transformは保持する。取付高さと全体の姿勢は既存Coreへの配置入力に残す。
+
+adapterはパターン全体を1つのrigid partとして登録し、そのlocal socketをGLBのEmptyから渡す。Blenderが固定部品の形状・相対配置を所有し、Coreがworld配置を所有する。GLBの子nodeをCoreのpartへ複写せず、同じ配置をTypeScriptで作り直さない。viewerは子nodeのMeshデータを既存のInstancedMesh経路で描く。共有はMeshデータの参照で判定する。
+
+この移行はSoftware Architecture / Software Designの正本分離として扱う。変更範囲は制作blend、GLB、asset adapter、検証と制作手順。Core API、保存schema、topology、connectivity、row/endpoint fixture、Port、sagの担当箇所は変えない。rootの展示transform混入、axis変換の二重適用、共有Meshの複製を検証上の主なリスクとする。1パターンの移行を検証してから、固定配線と複数パターンへ進む。
+
 | 層 | 内容 |
 |---|---|
 | mesh asset(fbx/glTF等) | adapter側。coreは読まない |
@@ -38,6 +44,8 @@ kindで探すAPIはgrouping/filterとして複数idを返し、`BundleKind`か�
 
 ## 再読込
 
+model assembly更新時は、既存の更新操作がmodel instanceとvisual curve cacheを更新する。row/endpointを参照するSpanだけでなく、柱上機材の部品・socket変更やpole visualの変更も表示へ反映する。柱上機材の候補はカタログ全体から電柱ごとに選ぶため、row/endpoint対象Spanが空でもモデル更新を省略しない。adapter専用の再読込経路や、特定assembly id向けの更新処理は追加しない。
+
 - 再抽出は測定レイヤだけを置き換える。overrideは残す。
 - 差分report(marker消失、寸法変化)を出す。消えたmarkerを参照するoverrideは補完せずconflictとして報告する。
 - coreテンプレートへの反映は既存post-edit経路に乗せる。placement-only差分はkReposition/kReshape、
@@ -67,15 +75,14 @@ kindで探すAPIはgrouping/filterとして複数idを返し、`BundleKind`か�
 
 ## 変圧器のバンド
 
-以下は現行M01の制作・登録経路を記す。Blenderを制作正本に移す方針と未実装範囲は`pole_fittings.md`を参照する。
+制作・登録経路と編集手順は`pole_fittings.md`を参照する。
 
 beltは円環1つなので配置高さの`pole_radius_at_height_m`へradial scaleできる。変圧器のバンドは電柱とタンクの両方を1周する閉ループであり、2つの円の共通接線で形が決まるため、単一transformでは電柱径に追従しない。したがってバンドは焼き込みとし、fit modeは`kRigid`に限定する。
 
-- 生成元は`tools/models/pole_transformer_m_01.ts`、焼き込みは`tools/models/export_pole_transformer.mjs`が行う。
-- exporterはpole primitiveのtop diameterとtaper ratioから公称取付高さでの半径を求め、模型内部のtaper係数と併せて渡す。バンドが2段あっても各段の高さで正しい電柱径になる。
-- 公称取付高さはexporterの`MOUNT_HEIGHT_M`とadapterの`TRANSFORMER_MOUNT_HEIGHT_M`が同じ値を持つ。変えるときは両方を直して再exportする。
+- バンド形状と各部品の相対位置は`assets/pole_fittings.blend`内に保持する。`tools/export_fittings.py`は編集済みのCollectionを書き出すだけで、形状や座標を再生成しない。
+- 取付高さ7.26mは既存のCore配置入力としてadapterに残す。パターンROOTのlocal原点をその取付高さの電柱軸へ置く。バンドはこの高さの公称径向けのrigid meshであり、取付高さや柱径が大きく変わる場合の自動fitはしない。
 - 取付高さが公称から1m動いても電柱半径の差は7mm程度で、バンドの板厚と同程度に収まる。高さ別assetは持たない。
-- 腕金は焼き込まない。既存の`hv_crossarm`をassemblyの別partとして置き、長さはlocal transformのscaleで決める。
+- 固定支持腕はGLB内の別nodeとして保持し、左右でMeshデータを共有する。可変rowの腕金は既存Coreのassemblyに残す。
 - 電柱への付き方と、どこまでを1モデルに含めるかは`pole_fittings.md`が決める。
 - assetを焼き直したら再読み込みだけでよい。assemblyは手で上げるversionを持たず、bootstrapは既存assemblyとの差分をそのまま上書きする。descriptorVersionはbounds、anchor、socketのハッシュなので焼き直しは自動で検出される。
 

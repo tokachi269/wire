@@ -13,7 +13,7 @@ import communicationClampLongUrl from "../assets/communication_clamp_long_1.glb?
 import crossarmHvUrl from "../assets/crossarm_hv_1p7m.glb?url";
 import hvInsulatorUrl from "../assets/hv_phase_1_disc_3.glb?url";
 import poleBodyUrl from "../assets/pole_body_tapered_12m_visible10m.glb?url";
-import poleTransformerUrl from "../assets/pole_transformer_m_01.glb?url";
+import poleFittingsUrl from "../assets/pole_fittings.glb?url";
 
 type MountRule = "center" | "bottom" | "origin" | "pole-ground";
 
@@ -21,6 +21,7 @@ export interface ModelAssetAdapter {
   modelKey: string;
   url: string;
   mountRule: MountRule;
+  rootNode?: string;
   visibleLengthM?: number;
   radialReferenceM?: number;
   radialTopM?: number;
@@ -53,14 +54,8 @@ export const polePrimitive = {
 export const poleRadiusAtDistanceFromTop = (distanceM: number): number =>
   (polePrimitive.topDiameterM + distanceM / polePrimitive.taperRatio) * 0.5;
 
-// tools/models/export_pole_transformer.mjs bakes the strap loops for the pole
-// radius at this height, so the asset and the placement have to agree on it.
+// Core placement height of the rigid pattern; child transforms live in Blender.
 const TRANSFORMER_MOUNT_HEIGHT_M = 7.26;
-const TRANSFORMER_TANK_TO_POLE_GAP_M = 0.0635;
-const TRANSFORMER_TANK_MAX_RADIUS_M = 0.2525;
-const transformerAxisDistanceM =
-  poleRadiusAtDistanceFromTop(polePrimitive.visibleHeightM - TRANSFORMER_MOUNT_HEIGHT_M) +
-  TRANSFORMER_TANK_TO_POLE_GAP_M + TRANSFORMER_TANK_MAX_RADIUS_M;
 
 export const modelAssetAdapters = {
   belt: {
@@ -102,9 +97,8 @@ export const modelAssetAdapters = {
   },
   poleTransformerM01: {
     modelKey: "pole_transformer_m_01",
-    url: poleTransformerUrl,
-    // The strap loops are authored around the pole axis, so the authored origin
-    // is the mount datum; a bounds-derived anchor would move the tank off it.
+    url: poleFittingsUrl,
+    rootNode: "transformer_m_01_ROOT",
     mountRule: "origin"
   },
   nonHvSupportRowProxy: {
@@ -173,8 +167,7 @@ function mountAnchor(bounds: THREE.Box3, size: THREE.Vector3, rule: MountRule): 
   return new THREE.Vector3(0, bounds.min.y + size.y * buriedRatio, 0);
 }
 
-// The authored marker's local +X is the direction the wire leaves, as
-// tools/models/pole_transformer_m_01.ts writes it.
+// The authored Empty's local +X is the direction the external wire leaves.
 function extractSockets(source: THREE.Group): ModelSocketInput[] {
   const out: ModelSocketInput[] = [];
   source.updateMatrixWorld(true);
@@ -184,11 +177,14 @@ function extractSockets(source: THREE.Group): ModelSocketInput[] {
   // source is unparented here, so its matrixWorld is the part-local frame: the
   // marker's matrixWorld already carries the Y-up to Z-up turn source applies.
   source.traverse((node) => {
-    if (!node.name.startsWith("connect_")) return;
+    const name = node.userData.wire_socket ?? node.name;
+    if (typeof name !== "string") throw new Error("wire_socket must be a socket name");
+    if (!name.startsWith("connect_")) return;
+    if (out.some((socket) => socket.name === name)) throw new Error(`Duplicate model socket: ${name}`);
     position.setFromMatrixPosition(node.matrixWorld);
     direction.set(1, 0, 0).applyMatrix4(rotation.extractRotation(node.matrixWorld)).normalize();
     out.push({
-      name: node.name,
+      name,
       positionX: position.x, positionY: position.y, positionZ: position.z,
       directionX: direction.x, directionY: direction.y, directionZ: direction.z
     });
@@ -399,7 +395,23 @@ export class ModelAssetCache {
     if (cached !== undefined) return cached;
     const adapter: ModelAssetAdapter = modelAssetAdapters[kind];
     this.loads.set(kind, (this.loads.get(kind) ?? 0) + 1);
-    const pending = this.loadScene(adapter.url).then((rawSource) => {
+    const pending = this.loadScene(adapter.url).then((scene) => {
+      let rawSource: THREE.Group;
+      if (adapter.rootNode !== undefined) {
+        const roots: THREE.Object3D[] = [];
+        scene.traverse((node) => { if (node.name === adapter.rootNode) roots.push(node); });
+        if (roots.length !== 1) throw new Error(`GLB requires one pattern root: ${adapter.rootNode}`);
+        // Root TRS belongs to the side-by-side display in Blender. Descendant
+        // transforms remain untouched and are shared by meshes and sockets.
+        const root = roots[0].clone(true);
+        root.position.set(0, 0, 0);
+        root.quaternion.identity();
+        root.scale.set(1, 1, 1);
+        rawSource = new THREE.Group();
+        rawSource.add(root);
+      } else {
+        rawSource = scene.clone(true);
+      }
       rawSource.updateMatrixWorld(true);
       const bounds = new THREE.Box3().setFromObject(rawSource, true);
       if (bounds.isEmpty()) throw new Error(`GLB has no visible bounds: ${kind}`);
@@ -580,33 +592,7 @@ export function buildDefaultModelBootstrap(
   const communicationInsertion = insertionFixture(communicationClamp);
   const lowVoltageInsertion = insertionFixture(communicationClampLong);
   const transformerTransform = identityTransform();
-  transformerTransform.positionX = transformerAxisDistanceM;
   transformerTransform.positionZ = TRANSFORMER_MOUNT_HEIGHT_M;
-  // A transformer platform is bolted to the pole by a pair of arms that clamp it
-  // from both sides, so the arms run past the pole instead of ending at its face,
-  // and the authored length covers the arrester end as well as the tank.
-  const transformerArmLengthM = 1.5;
-  const transformerArmCenterXM = 0.5;
-  const transformerArmOffsetYM =
-    poleRadiusAtDistanceFromTop(polePrimitive.visibleHeightM - TRANSFORMER_MOUNT_HEIGHT_M) +
-    crossarm.size.z * 0.5;
-  // Reused rather than exported with the transformer so the arms keep the
-  // existing textured crossarm asset.
-  const transformerArmTransform = (side: number): ModelTransformInput => {
-    const transform = identityTransform();
-    transform.scaleX = transformerArmLengthM / crossarm.size.x;
-    transform.positionX = transformerArmCenterXM;
-    transform.positionY = side * transformerArmOffsetYM;
-    transform.positionZ = TRANSFORMER_MOUNT_HEIGHT_M - crossarm.size.y * 0.5;
-    return transform;
-  };
-  // The high-voltage bushings face -Y, so the arm on that side is the one the
-  // outboard insulator sits on.
-  const transformerArmInsulatorTransform = identityTransform();
-  transformerArmInsulatorTransform.positionX =
-    transformerArmCenterXM + transformerArmLengthM * 0.5 - 0.09;
-  transformerArmInsulatorTransform.positionY = -transformerArmOffsetYM;
-  transformerArmInsulatorTransform.positionZ = TRANSFORMER_MOUNT_HEIGHT_M;
 
   const poleAssemblyId = 9201;
   const hvRowAssemblyId = 9202;
@@ -670,10 +656,7 @@ export function buildDefaultModelBootstrap(
       {
         id: poleTransformerAssemblyId,
         parts: [
-          part(transformer, 1, 0, transformerTransform, transformer.sockets),
-          part(crossarm, 2, 0, transformerArmTransform(-1)),
-          part(crossarm, 3, 0, transformerArmTransform(1)),
-          part(insulator, 4, 0, transformerArmInsulatorTransform)
+          part(transformer, 1, 0, transformerTransform, transformer.sockets)
         ],
         wireSocket: null
       }

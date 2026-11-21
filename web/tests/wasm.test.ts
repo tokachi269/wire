@@ -7,6 +7,7 @@ import { ROAD_TEMPLATE_PRESETS, seedRoadSections } from "../src/road_templates";
 import { CommitFailureCategory, type BundlePlacement, type ModelAssemblyBootstrapInput, type ModelTransformInput } from "../src/model";
 import {
   buildDefaultModelBootstrap,
+  loadModelAssets,
   ModelAssetCache
 } from "../src/render/modelAssets";
 import { missingBackboneEntryCells } from "./backbone_semantics_contract";
@@ -172,16 +173,7 @@ async function productionLikeModelBootstrap(): Promise<ModelAssemblyBootstrapInp
     return source;
   };
   const cache = new ModelAssetCache(load);
-  const [pole, crossarm, belt, insulator, clamp, clampLong, poleTransformer] = await Promise.all([
-    cache.load("poleBody"),
-    cache.load("crossarmHv"),
-    cache.load("belt"),
-    cache.load("hvInsulator"),
-    cache.load("communicationClamp"),
-    cache.load("communicationClampLong"),
-    cache.load("poleTransformerM01")
-  ]);
-  return buildDefaultModelBootstrap(pole, crossarm, belt, insulator, clamp, clampLong, poleTransformer);
+  return buildDefaultModelBootstrap(await loadModelAssets(cache));
 }
 
 function defaultBundlePlacements(): BundlePlacement[] {

@@ -15,46 +15,10 @@ import hvInsulatorUrl from "../assets/hv_phase_1_disc_3.glb?url";
 import poleBodyUrl from "../assets/pole_body_tapered_12m_visible10m.glb?url";
 import poleTransformerUrl from "../assets/pole_transformer_m_01.glb?url";
 
-export type ModelAssetKind =
-  | "belt"
-  | "communicationClamp"
-  | "communicationClampLong"
-  | "crossarmHv"
-  | "hvInsulator"
-  | "poleBody"
-  | "poleTransformerM01"
-  | "nonHvSupportRowProxy"
-  | "poleTransformer20kvaProxy"
-  | "transformerIntermediateInsulatorProxy"
-  | "transformerSupportBracketProxy"
-  | "pc6CutoutProxy"
-  | "tma13CutoutMountProxy"
-  | "arresterGlB6gProxy"
-  | "hvTriplexTermination60Proxy"
-  | "aerialOpticalClosureRca3aoProxy";
-
-export type ModelKey =
-  | "pole_belt"
-  | "communication_clamp"
-  | "communication_clamp_long"
-  | "hv_crossarm"
-  | "hv_insulator"
-  | "pole_body"
-  | "pole_transformer_m_01"
-  | "non_hv_support_row_proxy"
-  | "pole_transformer_20kva_proxy"
-  | "transformer_intermediate_insulator_proxy"
-  | "transformer_support_bracket_proxy"
-  | "pc6_cutout_proxy"
-  | "tma13_cutout_mount_proxy"
-  | "arrester_gl_b6g_proxy"
-  | "hv_triplex_termination_60_proxy"
-  | "aerial_optical_closure_rca3ao_proxy";
-
 type MountRule = "center" | "bottom" | "origin" | "pole-ground";
 
 export interface ModelAssetAdapter {
-  modelKey: ModelKey;
+  modelKey: string;
   url: string;
   mountRule: MountRule;
   visibleLengthM?: number;
@@ -65,7 +29,7 @@ export interface ModelAssetAdapter {
 
 export interface LoadedModelAsset {
   kind: ModelAssetKind;
-  modelKey: ModelKey;
+  modelKey: string;
   source: THREE.Group;
   bounds: THREE.Box3;
   size: THREE.Vector3;
@@ -76,6 +40,8 @@ export interface LoadedModelAsset {
   descriptorVersion: number;
   adapter: ModelAssetAdapter;
 }
+
+export type LoadedModelAssets = Readonly<Record<ModelAssetKind, LoadedModelAsset>>;
 
 type SceneLoader = (url: string) => Promise<THREE.Group>;
 
@@ -97,7 +63,7 @@ const transformerAxisDistanceM =
   poleRadiusAtDistanceFromTop(polePrimitive.visibleHeightM - TRANSFORMER_MOUNT_HEIGHT_M) +
   TRANSFORMER_TANK_TO_POLE_GAP_M + TRANSFORMER_TANK_MAX_RADIUS_M;
 
-export const modelAssetAdapters: Record<ModelAssetKind, ModelAssetAdapter> = {
+export const modelAssetAdapters = {
   belt: {
     modelKey: "pole_belt",
     url: beltUrl,
@@ -203,7 +169,12 @@ export const modelAssetAdapters: Record<ModelAssetKind, ModelAssetAdapter> = {
     mountRule: "center",
     adapterVersion: 1
   }
-};
+} as const satisfies Record<string, ModelAssetAdapter>;
+
+// The table is the whole registration: a new asset is one entry, and both
+// names follow from it, so it cannot be registered by halves.
+export type ModelAssetKind = keyof typeof modelAssetAdapters;
+export type ModelKey = (typeof modelAssetAdapters)[ModelAssetKind]["modelKey"];
 
 const kindByModelKey = new Map<ModelKey, ModelAssetKind>(
   Object.entries(modelAssetAdapters).map(([kind, adapter]) => [adapter.modelKey, kind as ModelAssetKind])
@@ -416,7 +387,7 @@ export class ModelAssetCache {
   }
 
   private registerPrimitiveSource(kind: ModelAssetKind, source: THREE.Group): void {
-    const adapter = modelAssetAdapters[kind];
+    const adapter: ModelAssetAdapter = modelAssetAdapters[kind];
     source.updateMatrixWorld(true);
     const bounds = new THREE.Box3().setFromObject(source, true);
     const size = bounds.getSize(new THREE.Vector3());
@@ -444,7 +415,7 @@ export class ModelAssetCache {
     if (loaded !== undefined) return Promise.resolve(loaded);
     const cached = this.promises.get(kind);
     if (cached !== undefined) return cached;
-    const adapter = modelAssetAdapters[kind];
+    const adapter: ModelAssetAdapter = modelAssetAdapters[kind];
     this.loads.set(kind, (this.loads.get(kind) ?? 0) + 1);
     const pending = this.loadScene(adapter.url).then((rawSource) => {
       rawSource.updateMatrixWorld(true);
@@ -568,14 +539,15 @@ function insertionFixture(asset: LoadedModelAsset): {
 }
 
 export function buildDefaultModelBootstrap(
-  pole: LoadedModelAsset,
-  crossarm: LoadedModelAsset,
-  belt: LoadedModelAsset,
-  insulator: LoadedModelAsset,
-  communicationClamp: LoadedModelAsset,
-  communicationClampLong: LoadedModelAsset,
-  transformer: LoadedModelAsset
+  assets: LoadedModelAssets
 ): ModelAssemblyBootstrapInput {
+  const pole = assets.poleBody;
+  const crossarm = assets.crossarmHv;
+  const belt = assets.belt;
+  const insulator = assets.hvInsulator;
+  const communicationClamp = assets.communicationClamp;
+  const communicationClampLong = assets.communicationClampLong;
+  const transformer = assets.poleTransformerM01;
   const poleVisibleLength = pole.adapter.visibleLengthM;
   if (poleVisibleLength === undefined || !Number.isFinite(poleVisibleLength) || poleVisibleLength <= 0) {
     throw new Error("Pole adapter requires a positive configured visible length");
@@ -767,20 +739,16 @@ export function buildDefaultModelBootstrap(
   };
 }
 
+export async function loadModelAssets(
+  cache: ModelAssetCache = modelAssetCache
+): Promise<LoadedModelAssets> {
+  const kinds = Object.keys(modelAssetAdapters) as ModelAssetKind[];
+  const loaded = await Promise.all(kinds.map((kind) => cache.load(kind)));
+  return Object.fromEntries(kinds.map((kind, index) => [kind, loaded[index]])) as LoadedModelAssets;
+}
+
 export async function loadDefaultModelBootstrap(): Promise<ModelAssemblyBootstrapInput> {
-  const [pole, crossarm, belt, insulator, communicationClamp, communicationClampLong, transformer] =
-    await Promise.all([
-      modelAssetCache.load("poleBody"),
-      modelAssetCache.load("crossarmHv"),
-      modelAssetCache.load("belt"),
-      modelAssetCache.load("hvInsulator"),
-      modelAssetCache.load("communicationClamp"),
-      modelAssetCache.load("communicationClampLong"),
-      modelAssetCache.load("poleTransformerM01")
-    ]);
-  return buildDefaultModelBootstrap(
-    pole, crossarm, belt, insulator, communicationClamp, communicationClampLong, transformer
-  );
+  return buildDefaultModelBootstrap(await loadModelAssets());
 }
 
 export async function loadGltfScene(url: string): Promise<THREE.Group> {

@@ -7,6 +7,7 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import {
   buildDefaultModelBootstrap,
   cloneSharedAsset,
+  loadModelAssets,
   ModelAssetCache
 } from "../src/render/modelAssets";
 
@@ -92,24 +93,16 @@ describe("model asset cache", () => {
       return source;
     });
     const cache = new ModelAssetCache(load);
-    const [pole, crossarm, belt, insulator, clamp, clampLong, poleTransformer] = await Promise.all([
-      cache.load("poleBody"),
-      cache.load("crossarmHv"),
-      cache.load("belt"),
-      cache.load("hvInsulator"),
-      cache.load("communicationClamp"),
-      cache.load("communicationClampLong"),
-      cache.load("poleTransformerM01")
-    ]);
+    const assets = await loadModelAssets(cache);
+    const { poleBody: pole, crossarmHv: crossarm, belt } = assets;
+    const { communicationClamp: clamp, communicationClampLong: clampLong } = assets;
     expect(cache.loadCount("poleBody")).toBe(1);
     expect(cache.loadCount("crossarmHv")).toBe(1);
     expect(cache.loadCount("belt")).toBe(1);
     expect(cache.loadCount("hvInsulator")).toBe(1);
     expect(cache.loadCount("communicationClampLong")).toBe(1);
     expect(cache.loadCount("communicationClamp")).toBe(1);
-    const bootstrap = buildDefaultModelBootstrap(
-      pole, crossarm, belt, insulator, clamp, clampLong, poleTransformer
-    );
+    const bootstrap = buildDefaultModelBootstrap(assets);
 
     expect(bootstrap.poleAssignments).toEqual([
       {
@@ -190,15 +183,8 @@ describe("model asset cache", () => {
       }
       return (await new GLTFLoader().parseAsync(data, "")).scene as unknown as THREE.Group;
     });
-    const [pole, crossarm, belt, insulator, clamp, clampLong, transformer] = await Promise.all([
-      cache.load("poleBody"),
-      cache.load("crossarmHv"),
-      cache.load("belt"),
-      cache.load("hvInsulator"),
-      cache.load("communicationClamp"),
-      cache.load("communicationClampLong"),
-      cache.load("poleTransformerM01")
-    ]);
+    const assets = await loadModelAssets(cache);
+    const transformer = assets.poleTransformerM01;
 
     // Y-up (x, y, z) becomes Core-local (x, -z, y), and a marker's local +X is
     // the direction the wire leaves. Hard numbers because the GLB is the only
@@ -220,9 +206,7 @@ describe("model asset cache", () => {
     // mountRule "origin" keeps the authored datum, so Core sees these unshifted.
     expect(transformer.mountAnchor.length()).toBeCloseTo(0, 12);
 
-    const bootstrap = buildDefaultModelBootstrap(
-      pole, crossarm, belt, insulator, clamp, clampLong, transformer
-    );
+    const bootstrap = buildDefaultModelBootstrap(assets);
     const assembly = bootstrap.assemblies.find((entry) => entry.id === 9208)!;
     const tank = assembly.parts.find((part) => part.modelKey === transformer.modelKey)!;
     expect(tank.sockets).toEqual(transformer.sockets);
